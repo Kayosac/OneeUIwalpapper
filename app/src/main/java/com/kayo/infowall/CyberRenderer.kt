@@ -840,14 +840,14 @@ class CyberRenderer {
         val imgW = 52f; val imgH = imgW * 87f / 231f
         val nameX = l + 8f + imgW + 8f
         val sparkL = nameX + 150f; val sparkR = sparkL + 80f
-        val playersR = sparkR + 64f          // онлайн сейчас
-        val peakR = playersR + 62f           // пик за 24 ч
+        val playersR = sparkR + 76f          // онлайн сейчас (влезает 1,284,500)
+        val peakR = playersR + 74f           // пик за 24 ч
         val priceR = peakR + 62f             // цена, $
         val r = priceR + 10f
         panel(c, l, t, r, b)
         // шапка
         text.typeface = labelFace; text.textSize = 10f; text.letterSpacing = 0.12f; text.color = accent
-        c.drawText("TRENDING GAMES", nameX, t + 20f, text)
+        c.drawText("TOP SELLERS", nameX, t + 20f, text)
         text.textSize = 8f; text.letterSpacing = 0.06f; text.color = label
         center(c, "LAST 7 DAYS", (sparkL + sparkR) / 2f, t + 20f)
         for ((h, x) in listOf("NOW" to playersR, "24H PEAK" to peakR, "PRICE" to priceR))

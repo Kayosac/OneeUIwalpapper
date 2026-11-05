@@ -22,12 +22,11 @@ class TrendGame(
 )
 
 /**
- * «Trending Games» в духе SteamDB, но на официальном открытом API Steam
- * (у SteamDB API нет, а сбор с сайта они запрещают):
- *  - ISteamChartsService/GetMostPlayedGames — топ-100 по онлайну и место неделю назад;
- *  - ISteamChartsService/GetGamesByConcurrentPlayers — онлайн прямо сейчас;
- *  - store appdetails — название (кэшируется навсегда), обложка capsule 231×87 — в файлы приложения.
- * «В тренде» = кто сильнее всех поднялся в чарте за неделю (новички чарта — выше всех).
+ * Виджет в духе SteamDB на официальных данных Steam (у SteamDB API нет, а сбор с сайта они запрещают):
+ *  - подборка — «Лидеры продаж» магазина Steam (search/results?filter=topsellers), только игры;
+ *  - ISteamChartsService/GetGamesByConcurrentPlayers — онлайн и пик за 24 ч для топ-100,
+ *    для остальных — ISteamUserStats/GetNumberOfCurrentPlayers и наши замеры;
+ *  - store appdetails — тип и цена, обложка capsule 231×87 — в файлы приложения.
  * График «7 дней» строится из наших замеров: копится по мере работы обоев.
  */
 object SteamTrends {
@@ -36,14 +35,23 @@ object SteamTrends {
     private const val PREFS = "infowall_steam"
     private const val K_NAMES = "names"
     private const val K_HIST = "hist"
+    private const val K_TYPES = "types"
     private const val WEEK_MS = 7 * 24 * 3600_000L
     private const val API = "https://api.steampowered.com/ISteamChartsService"
 
     /** [cc] — страна магазина для цен (us — доллары). */
     @Throws(IOException::class)
     fun fetch(ctx: Context, cc: String = "us"): List<TrendGame> {
-        val most = JSONObject(get("$API/GetMostPlayedGames/v1/")).optJSONObject("response")?.optJSONArray("ranks")
-            ?: throw IOException("Steam: пустой ответ")
+        // подборка — официальные «Лидеры продаж» магазина Steam (как вкладка Top Sellers в магазине)
+        val list = JSONObject(get("https://store.steampowered.com/search/results/?json=1&filter=topsellers&count=40&cc=$cc&l=english"))
+            .optJSONArray("items") ?: throw IOException("Steam: пустой ответ")
+        val idRe = Regex("/apps/(\\d+)/")
+        val sellers = ArrayList<Pair<Int, String>>()
+        for (i in 0 until list.length()) {
+            val o = list.optJSONObject(i) ?: continue
+            val id = idRe.find(o.optString("logo"))?.groupValues?.get(1)?.toIntOrNull() ?: continue
+            if (sellers.none { it.first == id }) sellers += id to o.optString("name")
+        }
         val live = HashMap<Int, Int>()
         val livePeak = HashMap<Int, Int>()
         runCatching {
@@ -55,29 +63,22 @@ object SteamTrends {
             }
         }
 
-        // рост в чарте за неделю
-        data class Cand(val appid: Int, val rank: Int, val score: Int, val peak: Int)
-        val cands = ArrayList<Cand>()
-        for (i in 0 until most.length()) {
-            val o = most.optJSONObject(i) ?: continue
-            val rank = o.optInt("rank"); val lw = o.optInt("last_week_rank", 0)
-            val score = if (lw <= 0) 200 - rank else lw - rank
-            cands += Cand(o.optInt("appid"), rank, score, o.optInt("peak_in_game"))
-        }
-        val picked = cands.filter { it.score > 0 }.sortedWith(compareByDescending<Cand> { it.score }.thenBy { it.rank }).take(ROWS)
-            .ifEmpty { cands.sortedBy { it.rank }.take(ROWS) }
-
         val p = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val names = runCatching { JSONObject(p.getString(K_NAMES, "{}")!!) }.getOrDefault(JSONObject())
         val hist = runCatching { JSONObject(p.getString(K_HIST, "{}")!!) }.getOrDefault(JSONObject())
+        val types = runCatching { JSONObject(p.getString(K_TYPES, "{}")!!) }.getOrDefault(JSONObject())
         val now = System.currentTimeMillis()
         val out = ArrayList<TrendGame>()
-        for (c in picked) {
-            val id = c.appid
-            val name = names.optString(id.toString()).ifEmpty {
-                runCatching { appName(id) }.getOrNull()?.also { names.put(id.toString(), it) } ?: "App $id"
-            }
-            val players = live[id] ?: runCatching { currentPlayers(id) }.getOrDefault(c.peak)
+        for ((id, listName) in sellers) {
+            if (out.size >= ROWS) break
+            // в лидерах продаж бывают железо (Steam Deck), DLC и программы — оставляем только игры
+            val info = runCatching { details(id, cc) }.getOrNull()
+            val type = info?.type ?: types.optString(id.toString())
+            if (type.isNotEmpty()) types.put(id.toString(), type)
+            if (type.isNotEmpty() && type != "game") continue
+            val name = listName.ifBlank { names.optString(id.toString()).ifEmpty { "App $id" } }
+            names.put(id.toString(), name)
+            val players = live[id] ?: runCatching { currentPlayers(id) }.getOrDefault(0)
             // история: точка не чаще раза в 50 минут, хранится неделя
             val h = hist.optJSONArray(id.toString()) ?: JSONArray()
             val kept = JSONArray()
@@ -89,14 +90,30 @@ object SteamTrends {
             if (now - lastTs > 50 * 60_000L) kept.put(JSONArray().put(now).put(players))
             hist.put(id.toString(), kept)
             val series = FloatArray(kept.length()) { kept.optJSONArray(it).optDouble(1).toFloat() }
-            // пик за 24 ч: из чарта онлайна; если игры там нет — суточный пик из чарта «самых популярных»
-            val peak = max(livePeak[id] ?: c.peak, players)
-            val rating: Float? = null   // рейтинг в виджете не показывается — обзоры не запрашиваем
-            val pr = runCatching { price(id, cc) }.getOrNull()
-            out += TrendGame(id, name, players, peak, rating, pr?.first, pr?.second ?: 0, series, capsule(ctx, id))
+            // пик за 24 ч: из чарта онлайна Steam; если игры нет в топ-100 — максимум наших замеров за сутки
+            var ownPeak = players
+            for (i in 0 until kept.length()) {
+                val pt = kept.optJSONArray(i) ?: continue
+                if (now - pt.optLong(0) < 24 * 3600_000L) ownPeak = max(ownPeak, pt.optInt(1))
+            }
+            val peak = max(livePeak[id] ?: ownPeak, players)
+            out += TrendGame(id, name, players, peak, null, info?.price, info?.discount ?: 0, series, capsule(ctx, id))
         }
-        p.edit().putString(K_NAMES, names.toString()).putString(K_HIST, hist.toString()).apply()
+        p.edit().putString(K_NAMES, names.toString()).putString(K_HIST, hist.toString()).putString(K_TYPES, types.toString()).apply()
+        if (out.isEmpty()) throw IOException("Steam: пустая подборка")
         return out
+    }
+
+    private class Details(val type: String, val price: String?, val discount: Int)
+
+    /** Тип (game / dlc / hardware…) и цена в магазине страны [cc]. */
+    private fun details(id: Int, cc: String): Details? {
+        val o = JSONObject(get("https://store.steampowered.com/api/appdetails?appids=$id&cc=$cc&filters=basic,price_overview&l=english"))
+            .optJSONObject(id.toString())?.optJSONObject("data") ?: return null
+        val type = o.optString("type")
+        if (o.optBoolean("is_free")) return Details(type, "Free", 0)
+        val p = o.optJSONObject("price_overview") ?: return Details(type, null, 0)
+        return Details(type, p.optString("final_formatted").trim(), p.optInt("discount_percent"))
     }
 
     private fun appName(id: Int): String? {
