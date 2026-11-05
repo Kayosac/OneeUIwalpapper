@@ -49,6 +49,7 @@ class SettingsActivity : Activity() {
     private lateinit var fontStatus: TextView
     private lateinit var swConverter: Switch
     private lateinit var curList: LinearLayout
+    private lateinit var overlayStatus: TextView
     private val curCodes = ArrayList<String>()
     private lateinit var swNews: Switch
     private lateinit var newsRegion: EditText
@@ -122,6 +123,14 @@ class SettingsActivity : Activity() {
         col += curList
         renderCurrencies()
         col += button("Открыть конвертер") { startActivity(Intent(this, ConverterActivity::class.java)) }
+        col += button("Разрешить открывать конвертер с обоев") {
+            try {
+                startActivity(Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+            } catch (_: ActivityNotFoundException) {
+                toast("Открой: Настройки → Приложения → InfoWall → Поверх других приложений")
+            }
+        }
+        overlayStatus = status(""); col += overlayStatus
 
         // --- новости ---
         col += header("Бегущая строка")
@@ -241,6 +250,13 @@ class SettingsActivity : Activity() {
         val badZones = zones.text.toString().isNotBlank() && Prefs.parseZones(zones.text.toString()).isEmpty()
         if (badZones) toast("Пояса не распознаны — пример: МСК=Europe/Moscow")
         return true
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val ok = Build.VERSION.SDK_INT < 23 || android.provider.Settings.canDrawOverlays(this)
+        overlayStatus.text = if (ok) "✓ Тап по строке конвертера на обоях открывает окошко ввода"
+        else "✗ Нет разрешения «Поверх других приложений» — тап по конвертеру на обоях не откроет окошко"
     }
 
     // ---------- валюты ----------

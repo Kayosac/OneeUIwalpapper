@@ -244,6 +244,13 @@ class InfoWallpaperService : WallpaperService() {
         }
 
         private fun openConverter(code: String) {
+            // Android запрещает фоновым приложениям (а обои — фон) открывать окна;
+            // разрешение «Поверх других приложений» снимает этот запрет
+            if (Build.VERSION.SDK_INT >= 23 && !android.provider.Settings.canDrawOverlays(applicationContext)) {
+                android.widget.Toast.makeText(applicationContext,
+                    "Конвертер: разреши InfoWall «Поверх других приложений» (Настройки обоев → Курсы валют)",
+                    android.widget.Toast.LENGTH_LONG).show()
+            }
             try {
                 startActivity(
                     android.content.Intent(applicationContext, ConverterActivity::class.java)
