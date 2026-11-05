@@ -62,7 +62,8 @@ object Prefs {
     const val K_NEWS = "news"
     const val K_CONVERTER = "converter"
     const val K_CURRENCIES = "currencies"
-    const val DEFAULT_CURRENCIES = "KZT, RUB, USD, EUR"
+    const val DEFAULT_CURRENCIES = "KZT, RUB, USD, EUR, CNY, GBP, TRY"
+    private const val OLD_DEFAULT_CURRENCIES = "KZT, RUB, USD, EUR"
     const val K_FX_AMOUNT = "fx_amount"
     const val K_FX_FROM = "fx_from"
     const val K_SHADE_SOLID = "shade_solid"
@@ -100,7 +101,8 @@ object Prefs {
             uiScale = p.getFloat(K_UI_SCALE, 0.8f).coerceIn(0.6f, 1f),
             news = p.getBoolean(K_NEWS, true),
             converter = p.getBoolean(K_CONVERTER, true),
-            currencies = p.getString(K_CURRENCIES, DEFAULT_CURRENCIES).orEmpty().ifBlank { DEFAULT_CURRENCIES },
+            currencies = p.getString(K_CURRENCIES, DEFAULT_CURRENCIES).orEmpty().ifBlank { DEFAULT_CURRENCIES }
+                .let { if (it == OLD_DEFAULT_CURRENCIES) DEFAULT_CURRENCIES else it },
             fxAmount = p.getString(K_FX_AMOUNT, "1")?.toDoubleOrNull() ?: 1.0,
             fxFrom = p.getString(K_FX_FROM, "USD").orEmpty().ifBlank { "USD" },
             // доли высоты экрана: сплошной чёрный под доком и переход над ним

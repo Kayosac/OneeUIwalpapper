@@ -66,5 +66,7 @@ object RatesSource {
         .map { it.trim().uppercase() }
         .filter { it.length == 3 && it.all(Char::isLetter) }
         .distinct()
-        .take(4)
+        .take(MAX_CODES)
+
+    const val MAX_CODES = 7
 }

@@ -115,7 +115,7 @@ class SettingsActivity : Activity() {
         // --- курсы ---
         col += header("Курсы валют")
         swConverter = switch("Конвертер на экране (тап по строке — ввести сумму)", cfg.converter); col += swConverter
-        col += label("Четыре валюты через запятую, первая — базовая")
+        col += label("До семи валют через запятую — столбик конвертера растягивается под высоту погоды")
         currencies = field(Prefs.DEFAULT_CURRENCIES, cfg.currencies, InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS)
         col += currencies
         col += button("Открыть конвертер") { startActivity(Intent(this, ConverterActivity::class.java)) }

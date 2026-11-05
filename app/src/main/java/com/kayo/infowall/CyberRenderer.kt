@@ -63,7 +63,7 @@ class CyberRenderer {
 
     // где на экране (в пикселях) лежит блок курсов — для тапа
     private val converterOnScreen = RectF()
-    private val fxRowRects = Array(4) { RectF() }
+    private val fxRowRects = Array(RatesSource.MAX_CODES) { RectF() }
     private var fxRowCodes: List<String> = emptyList()
     private var screenScale = 1f
     private var screenOx = 0f
@@ -749,10 +749,84 @@ class CyberRenderer {
 
     private fun drawWeatherAndCalendar(c: Canvas, f: FrameData) {
         val top = 304f; val bottom = 466f
-        val wl = uiR - 446f
+        // в один ряд: погода · календарь · конвертер (столбик валют по высоте панелей)
+        val convW = if (f.cfg.converter) 168f + 10f else 0f
+        val cr = uiR - convW
+        val wl = cr - 446f
         if (f.cfg.weather) drawWeather(c, f, wl, top, wl + 268f, bottom)
-        drawCalendar(c, wl + 278f, top, uiR, bottom)
-        if (f.cfg.converter) drawRates(c, f, uiR - 168f, bottom + 10f, uiR) else converterOnScreen.setEmpty()
+        drawCalendar(c, wl + 278f, top, cr, bottom)
+        if (f.cfg.converter) drawRates(c, f, uiR - 168f, top, uiR, bottom) else converterOnScreen.setEmpty()
+    }
+
+    private fun drawWeather(c: Canvas, f: FrameData, l: Float, t: Float, r: Float, b: Float) {
+        panel(c, l, t, r, b)
+        val w = f.weather
+        text.typeface = labelFace; text.letterSpacing = 0.25f; text.textSize = 10f; text.color = label
+        drawMixed(c, f.city.ifBlank { "ПОГОДА" }.uppercase(), l + 12f, t + 20f)
+        text.letterSpacing = 0f; text.textSize = 10f
+        if (w == null) {
+            drawMixed(c, f.weatherNote ?: "загрузка…", l + 12f, t + 36f)
+            return
+        }
+        drawMixed(c, "${w.text} · ${w.wind.roundToInt()} м/с", l + 12f, t + 36f)
+        val temp = signed(w.temp) + "°"
+        text.typeface = numFace; text.textSize = 11f; text.color = accent
+        text.setShadowLayer(8f, 0f, 0f, withA(accent, 0.6f))
+        c.drawText(temp, r - 12f - text.measureText(temp), t + 20f, text)
+        text.clearShadowLayer()
+
+        val cellW = (r - l - 24f) / 7f
+        val y0 = t + 52f
+        w.days.take(7).forEachIndexed { i, d ->
+            val cx0 = l + 12f + i * cellW
+            if (i == 0) {
+                fill.color = withA(accent, 0.1f); c.drawRect(cx0, y0, cx0 + cellW - 2f, b - 10f, fill)
+                line(withA(accent, 0.45f), 1f); c.drawRect(cx0, y0, cx0 + cellW - 2f, b - 10f, stroke)
+            }
+            val mid = cx0 + (cellW - 2f) / 2f
+            text.typeface = labelFace; text.textSize = 10f; text.letterSpacing = 0.08f; text.color = if (i == 0) accent else label
+            centerMixed(c, d.dow, mid, y0 + 16f)
+            drawWxIcon(c, d.kind, mid, y0 + 38f)
+            text.typeface = numFace; text.letterSpacing = 0f; text.textSize = 11f; text.color = accent
+            center(c, signed(d.max) + "°", mid, y0 + 70f)
+            text.textSize = 11f; text.color = label
+            center(c, signed(d.min) + "°", mid, y0 + 86f)
+        }
+    }
+
+    /** Конвертер на экране: строки [валюта][сумма]; тап по строке — ввод суммы в этой валюте. */
+    private fun drawRates(c: Canvas, f: FrameData, l: Float, t: Float, r: Float, b: Float) {
+        val codes = RatesSource.parseCodes(f.cfg.currencies)
+        fxRowCodes = codes
+        if (codes.isEmpty()) { converterOnScreen.setEmpty(); return }
+        val gap = 3f; val codeW = 38f
+        // строки делят высоту панелей поровну: 7 валют — по ~20, меньше — выше, но не больше 28
+        val rowH = min(28f, (b - t - gap * (codes.size - 1)) / codes.size)
+        val ty = rowH / 2f + 4f   // базовая линия текста по центру строки
+        val ui = f.cfg.uiScale
+        val k = ui * screenScale
+        val bottom = t + codes.size * (rowH + gap) - gap
+        converterOnScreen.set(screenOx + l * k, t * k, screenOx + r * k, bottom * k)
+        val rates = f.rates
+        codes.forEachIndexed { i, code ->
+            val y = t + i * (rowH + gap)
+            fxRowRects[i].set(screenOx + l * k, y * k, screenOx + r * k, (y + rowH) * k)
+            val active = code == f.cfg.fxFrom
+            // окошко валюты
+            box(c, l, y, l + codeW, y + rowH, false)
+            text.typeface = labelFace; text.textSize = 10f; text.letterSpacing = 0.08f
+            text.color = if (active) accent else label
+            center(c, code, l + codeW / 2f, y + ty)
+            // окошко суммы
+            box(c, l + codeW + gap, y, r, y + rowH, active)
+            val v = rates?.convert(f.cfg.fxAmount, f.cfg.fxFrom, code)
+            val s = if (v == null) "—" else fmtMoney(v)
+            text.typeface = numFace; text.textSize = 11f; text.letterSpacing = 0f
+            text.color = face
+            if (active) text.setShadowLayer(6f, 0f, 0f, withA(accent, 0.7f))
+            c.drawText(s, r - 6f - text.measureText(s), y + ty, text)
+            text.clearShadowLayer()
+        }
     }
 
     private fun box(c: Canvas, l: Float, t: Float, r: Float, b: Float, active: Boolean) {
