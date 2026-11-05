@@ -38,6 +38,19 @@
              или иконкой «Конвертер» в списке приложений -->
         <receiver android:name=".UpdateReceiver" android:exported="false" />
 
+        <!-- прозрачная «зона касаний» на рабочем столе: тап по ней = тап по обоям, не по иконке -->
+        <receiver
+            android:name=".TapZoneProvider"
+            android:exported="false"
+            android:label="@string/tz_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/tapzone_info" />
+        </receiver>
+
         <activity
             android:name=".GoalsActivity"
             android:exported="false"

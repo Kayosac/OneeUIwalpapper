@@ -41,6 +41,7 @@ class SettingsActivity : Activity() {
     private var updBusy = false
     private lateinit var curList: LinearLayout
     private lateinit var overlayStatus: TextView
+    private lateinit var tzStatus: TextView
     private val curCodes = ArrayList<String>()
     private lateinit var swNews: Switch
     private lateinit var newsRegion: EditText
@@ -104,7 +105,7 @@ class SettingsActivity : Activity() {
 
         // --- курсы ---
         col += header("Курсы валют")
-        swConverter = switch("Конвертер на экране (двойной тап по строке — клавиатура прямо на обоях)", cfg.converter) { v -> put { putBoolean(Prefs.K_CONVERTER, v) } }; col += swConverter
+        swConverter = switch("Конвертер на экране (тап по строке — клавиатура прямо на обоях)", cfg.converter) { v -> put { putBoolean(Prefs.K_CONVERTER, v) } }; col += swConverter
         col += label("До ${RatesSource.MAX_CODES} валют. Тап по валюте — заменить, стрелки — порядок. Меняется на обоях сразу.")
         curCodes += RatesSource.parseCodes(cfg.currencies)
         curList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -141,16 +142,16 @@ class SettingsActivity : Activity() {
         col += header("Steam: что выстреливает")
         col += switch("Виджет слева: игры, которые резко взлетают, и анонсы с аномальными вишлистами", cfg.steam) { v -> put { putBoolean(Prefs.K_STEAM, v) } }
         col += switch("Виджет «формула»: живая плоскость z = f(x, y, t) и 8 кнопок с формулами", cfg.math) { v -> put { putBoolean(Prefs.K_MATH, v) } }
-        col += label("NEW — впервые в топ-100 Steam по онлайну, ▲N — поднялась на N мест за неделю, HOT — тысячи игроков при малом числе отзывов, WISH — свежий анонс уже высоко в топе вишлистов. Только официальные данные Steam, обновление раз в час. Двойной тап по ⟳ в шапке — собрать список заново, по игре — её страница на SteamDB в Chrome.")
+        col += label("NEW — впервые в топ-100 Steam по онлайну, ▲N — поднялась на N мест за неделю, HOT — тысячи игроков при малом числе отзывов, WISH — свежий анонс уже высоко в топе вишлистов. Только официальные данные Steam, обновление раз в час. ⟳ в шапке — собрать список заново, тап по игре — её страница на SteamDB в Chrome.")
 
         // --- цели ---
         col += header("Цели")
-        col += label("Шесть колец справа вверху: сколько дней осталось до каждой даты. Двойной тап по блоку на обоях — то же окно.")
+        col += label("Шесть колец справа вверху: сколько дней осталось до каждой даты. Тап по блоку на обоях — то же окно.")
         col += button("Задать цели") { startActivity(Intent(this, GoalsActivity::class.java)) }
 
         // --- открытие приложений ---
         col += header("Открытие приложений с обоев")
-        col += label("Всё на обоях — двойным тапом: одиночные тапы лаунчер пропускает к обоям и из меню приложений, так что одиночный тап по иконке открыл бы ещё и виджет под ней. Двойной тап по часам — «Часы», по календарю — Google Календарь, по целям — окно целей, по игре — Steam в Chrome, по серверу — личный кабинет хостинга. Android разрешает обоям открывать приложения только с разрешением «Поверх других приложений».")
+        col += label("Тап по часам — «Часы», по календарю — Google Календарь, по целям — окно целей, по игре — Steam в Chrome, по серверу — личный кабинет хостинга. Android разрешает обоям открывать приложения только с разрешением «Поверх других приложений».")
         col += button("Выдать разрешение") {
             try {
                 startActivity(Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
@@ -160,9 +161,22 @@ class SettingsActivity : Activity() {
         }
         overlayStatus = status(""); col += overlayStatus
 
+        // --- зона касаний ---
+        col += header("Зона касаний")
+        col += label("Лаунчер отдаёт обоям и тапы по иконкам в меню приложений и папках — без зоны тап по приложению может открыть ещё и виджет под ним. Поставь прозрачный виджет «InfoWall · зона касаний» и растяни его на панели обоев (или на весь стол): тапы по нему доходят до обоев, а по меню приложений и папкам — нет. Под зоной не работают жесты One UI на пустом месте (двойное касание для выключения экрана).")
+        tzStatus = status(""); col += tzStatus
+        col += button("Добавить зону касаний на рабочий стол") {
+            if (!runCatching { TapGate.requestPin(this) }.getOrDefault(false))
+                toast("Добавь вручную: долгое нажатие на столе → Виджеты → InfoWall · зона касаний")
+        }
+        col += switch("Показывать рамку зоны (на время настройки)", Prefs.get(this).getBoolean(TapGate.K_FRAME, true)) { v ->
+            Prefs.get(this).edit().putBoolean(TapGate.K_FRAME, v).apply()
+            TapGate.renderAll(this)
+        }
+
         // --- серверы ---
         col += header("Серверы (до ${Servers.MAX})")
-        col += label("На сервере: curl -fsSL https://raw.githubusercontent.com/Kayosac/OneeUIwalpapper/main/agent/install.sh | sudo bash — и вставь сюда строки iwa1|…, по одной на строку. Двойной тап по серверу на обоях открывает личный кабинет хостинга в Chrome (AdminVPS и netcup — сами; для других допиши в конец строки |https://адрес-панели).")
+        col += label("На сервере: curl -fsSL https://raw.githubusercontent.com/Kayosac/OneeUIwalpapper/main/agent/install.sh | sudo bash — и вставь сюда строки iwa1|…, по одной на строку. Тап по серверу на обоях открывает личный кабинет хостинга в Chrome (AdminVPS и netcup — сами; для других допиши в конец строки |https://адрес-панели).")
         servers = field("iwa1|имя|https://IP:порт|токен|отпечаток", p.getString(Prefs.K_SERVERS, "").orEmpty(),
             InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS).apply {
             isSingleLine = false; minLines = 2; maxLines = 4
@@ -237,6 +251,9 @@ class SettingsActivity : Activity() {
         val ok = Build.VERSION.SDK_INT < 23 || android.provider.Settings.canDrawOverlays(this)
         overlayStatus.text = if (ok) "✓ Разрешение есть — часы и календарь на обоях открывают приложения"
         else "✗ Разрешения нет — тап по часам и календарю ничего не откроет"
+        TapGate.refresh(this)
+        tzStatus.text = if (TapGate.active) "✓ Зона касаний стоит — виджеты реагируют только на тапы по ней"
+        else "✗ Зоны нет — тапы по иконкам в меню приложений могут задеть виджеты"
         checkUpdate()
     }
 

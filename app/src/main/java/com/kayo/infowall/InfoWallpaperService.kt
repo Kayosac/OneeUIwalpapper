@@ -69,6 +69,7 @@ open class InfoWallpaperService : WallpaperService() {
         private var steamNote: String? = null
         private var steamBusy = false
         private var nextSteamAt = 0L
+        private var lastTap = 0L
         private var updateName: String? = null    // вышла версия новее — на обоях появляется метка
         private var nextUpdAt = 0L
         private var updBusy = false
@@ -93,6 +94,7 @@ open class InfoWallpaperService : WallpaperService() {
             stats = Stats(applicationContext)
             cfg = Prefs.load(applicationContext)
             Prefs.get(applicationContext).registerOnSharedPreferenceChangeListener(this)
+            if (!lockMode) { TapGate.refresh(applicationContext); TapGate.listen(gateListener) }
             setTouchEventsEnabled(!lockMode)   // касания, которые лаунчер пропускает к обоям
             loadFonts()
             // остатки от 3D-моделей прошлых версий
@@ -111,7 +113,8 @@ open class InfoWallpaperService : WallpaperService() {
 
         override fun onVisibilityChanged(v: Boolean) {
             visible = v
-            pendAt = 0L                  // тап по приложению открыл его — недоделанный двойной тап забыть
+            pendAt = 0L
+            if (v) TapGate.refresh(applicationContext)
             if (!v) closeFx(true)
             handler.removeCallbacks(frame)
             if (v) {
@@ -129,6 +132,7 @@ open class InfoWallpaperService : WallpaperService() {
         override fun onDestroy() {
             handler.removeCallbacksAndMessages(null)
             Prefs.get(applicationContext).unregisterOnSharedPreferenceChangeListener(this)
+            TapGate.unlisten(gateListener)
             io.shutdownNow()
             srvIo.shutdownNow()
             steamIo.shutdownNow()
@@ -178,10 +182,10 @@ open class InfoWallpaperService : WallpaperService() {
 
         // ---------- касания: свой детектор тапа (One UI Home не присылает COMMAND_TAP) ----------
         //
-        // Лаунчер отдаёт обоям ВСЕ касания — и те, что пришлись на иконки в меню приложений, папках,
-        // контекстных меню. Поэтому действия виджетов — только по ДВОЙНОМУ тапу: одиночный тап по
-        // приложению открывает его, обои становятся невидимыми, и второго тапа уже не будет.
-        // Одиночные тапы принимаются только клавиатурой суммы, пока она открыта.
+        // Лаунчер отдаёт обоям копию ВСЕХ касаний — и тех, что пришлись на иконки в меню приложений,
+        // папках, контекстных меню. Если на столе стоит «зона касаний» (TapZone.kt), действие выполняется
+        // только когда лаунчер подтвердил, что тап достался ей, то есть сверху ничего не открыто.
+        // Без зоны — по-старому, по любому тапу. Клавиатура суммы, пока открыта, берёт тапы сразу.
 
         private var downX = 0f
         private var downY = 0f
@@ -190,9 +194,10 @@ open class InfoWallpaperService : WallpaperService() {
         private var lastTouchTapAt = 0L
         private var pendX = 0f
         private var pendY = 0f
-        private var pendAt = 0L          // первый тап двойного; 0 — нет
+        private var pendAt = 0L          // тап ждёт подтверждения зоны; 0 — нет
+        private var gateUsed = 0L        // подтверждение, которое уже потратили
+        private val gateListener: () -> Unit = { onGate() }
 
-        /** Тап (касание или COMMAND_TAP): клавиатура суммы — сразу, остальное — только вторым тапом. */
         private fun onRawTap(x: Float, y: Float) {
             val now = SystemClock.elapsedRealtime()
             val fx = fxEdit
@@ -201,12 +206,19 @@ open class InfoWallpaperService : WallpaperService() {
                 handleTap(x, y)
                 return
             }
-            val near = 36f * resources.displayMetrics.density
-            if (pendAt != 0L && now - pendAt < 380 && kotlin.math.abs(x - pendX) < near && kotlin.math.abs(y - pendY) < near) {
-                pendAt = 0L
+            if (!TapGate.active) { handleTap(x, y); return }
+            // подтверждение могло прийти раньше нашего касания
+            val g = TapGate.lastAt
+            if (g > gateUsed && now - g < GATE_MS) { gateUsed = g; pendAt = 0L; handleTap(x, y); return }
+            pendX = x; pendY = y; pendAt = now
+        }
+
+        private fun onGate() {
+            if (!visible || lockMode) return
+            val g = TapGate.lastAt
+            if (pendAt != 0L && g - pendAt in -GATE_MS..GATE_MS && g > gateUsed) {
+                gateUsed = g; pendAt = 0L
                 handleTap(pendX, pendY)
-            } else {
-                pendX = x; pendY = y; pendAt = now
             }
         }
 
@@ -220,7 +232,6 @@ open class InfoWallpaperService : WallpaperService() {
                 android.view.MotionEvent.ACTION_MOVE ->
                     if (downValid && (kotlin.math.abs(e.x - downX) > slop || kotlin.math.abs(e.y - downY) > slop)) {
                         downValid = false
-                        pendAt = 0L
                         // свайп (меню приложений, листание экранов) — открытую клавиатуру закрыть с сохранением
                         if (fxEdit != null) { closeFx(true); redraw() }
                     }
@@ -285,7 +296,10 @@ open class InfoWallpaperService : WallpaperService() {
                     }
                 }
                 // двойной тап по пустому месту — обновить погоду и серверы
-                nextRemoteAt = 0L; nextWeatherAt = 0L; nextSrvAt = 0L
+                val now = SystemClock.elapsedRealtime()
+                if (now - lastTap < 400) {
+                    nextRemoteAt = 0L; nextWeatherAt = 0L; nextSrvAt = 0L; lastTap = 0L
+                } else lastTap = now
             }
             redraw()
         }
@@ -686,5 +700,10 @@ open class InfoWallpaperService : WallpaperService() {
             // исходная сцена (нулевой сдвиг) + свечение поверх
             return RenderEffect.createBlendModeEffect(RenderEffect.createOffsetEffect(0f, 0f), halo, BlendMode.PLUS)
         }
+    }
+
+    companion object {
+        /** Сколько тап обоев и подтверждение зоны касаний могут расходиться во времени. */
+        const val GATE_MS = 700L
     }
 }
