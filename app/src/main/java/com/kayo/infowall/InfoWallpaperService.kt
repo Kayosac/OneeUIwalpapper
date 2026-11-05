@@ -87,6 +87,7 @@ class InfoWallpaperService : WallpaperService() {
             stats = Stats(applicationContext)
             cfg = Prefs.load(applicationContext)
             Prefs.get(applicationContext).registerOnSharedPreferenceChangeListener(this)
+            setTouchEventsEnabled(true)   // касания, которые лаунчер пропускает к обоям
             loadFonts()
             // остатки от 3D-моделей прошлых версий
             runCatching {
@@ -160,9 +161,46 @@ class InfoWallpaperService : WallpaperService() {
          * Двойной тап по пустому месту — обновить источник и погоду.
          */
         override fun onCommand(action: String?, x: Int, y: Int, z: Int, extras: Bundle?, resultRequested: Boolean): Bundle? {
-            if (action == WallpaperManager.COMMAND_TAP) {
+            // запасной путь: лаунчеры, которые шлют COMMAND_TAP; если тот же тап уже поймали касанием — пропускаем
+            if (action == WallpaperManager.COMMAND_TAP && SystemClock.elapsedRealtime() - lastTouchTapAt > 600) {
+                handleTap(x.toFloat(), y.toFloat())
+            }
+            return null
+        }
+
+        // ---------- касания: свой детектор тапа (One UI Home не присылает COMMAND_TAP) ----------
+
+        private var downX = 0f
+        private var downY = 0f
+        private var downAt = 0L
+        private var downValid = false
+        private var lastTouchTapAt = 0L
+
+        override fun onTouchEvent(e: android.view.MotionEvent) {
+            val slop = 14f * resources.displayMetrics.density
+            when (e.actionMasked) {
+                android.view.MotionEvent.ACTION_DOWN -> {
+                    downX = e.x; downY = e.y; downAt = SystemClock.elapsedRealtime(); downValid = true
+                }
+                android.view.MotionEvent.ACTION_MOVE ->
+                    if (downValid && (kotlin.math.abs(e.x - downX) > slop || kotlin.math.abs(e.y - downY) > slop)) downValid = false
+                android.view.MotionEvent.ACTION_POINTER_DOWN, android.view.MotionEvent.ACTION_CANCEL -> downValid = false
+                android.view.MotionEvent.ACTION_UP -> {
+                    val quick = SystemClock.elapsedRealtime() - downAt < 450
+                    if (downValid && quick) {
+                        lastTouchTapAt = SystemClock.elapsedRealtime()
+                        handleTap(downX, downY)
+                    }
+                    downValid = false
+                }
+            }
+            super.onTouchEvent(e)
+        }
+
+        private fun handleTap(tx: Float, ty: Float) {
+            renderer.tapAt(tx, ty)       // кольцо-отклик: видно, что тап дошёл
+            run {
                 val fx = fxEdit
-                val tx = x.toFloat(); val ty = y.toFloat()
                 if (fx != null) {
                     val key = renderer.padHit(tx, ty)
                     val row = renderer.converterHit(tx, ty)
@@ -173,28 +211,29 @@ class InfoWallpaperService : WallpaperService() {
                         else -> closeFx(true)            // тап мимо — сохранить и закрыть
                     }
                     redraw()
-                    return null
+                    return@run
                 }
                 val code = if (cfg.converter) renderer.converterHit(tx, ty) else null
                 if (code != null) {
                     startFx(code)
                     redraw()
-                    return null
+                    return@run
                 }
-                when (renderer.appHit(tx, ty)) {
-                    "clock" -> { openClock(); return null }
-                    "calendar" -> { openCalendar(); return null }
-                    "goals" -> { launchFirst(android.content.Intent(applicationContext, GoalsActivity::class.java)); return null }
+                when (val hit = renderer.appHit(tx, ty)) {
+                    "clock" -> { openClock(); return@run }
+                    "calendar" -> { openCalendar(); return@run }
+                    "goals" -> { launchFirst(android.content.Intent(applicationContext, GoalsActivity::class.java)); return@run }
                     null -> {}
                     else -> {
-                        val hit = renderer.appHit(tx, ty).orEmpty()
+                        val h = hit ?: ""
                         // игра — страница в Steam в Chrome; сервер — личный кабинет хостинга в Chrome
                         val url = when {
-                            hit.startsWith("steam:") -> hit.removePrefix("steam:").toIntOrNull()?.let { "https://store.steampowered.com/app/$it/" }
-                            hit.startsWith("srv:") -> hit.removePrefix("srv:").toIntOrNull()?.let { serverViews.getOrNull(it)?.panel }
+                            h.isEmpty() -> null
+                            h.startsWith("steam:") -> h.removePrefix("steam:").toIntOrNull()?.let { "https://store.steampowered.com/app/$it/" }
+                            h.startsWith("srv:") -> h.removePrefix("srv:").toIntOrNull()?.let { serverViews.getOrNull(it)?.panel }
                             else -> null
                         }
-                        if (url != null) { openInChrome(url); return null }
+                        if (url != null) { openInChrome(url); return@run }
                     }
                 }
                 val now = SystemClock.elapsedRealtime()
@@ -202,7 +241,7 @@ class InfoWallpaperService : WallpaperService() {
                     nextRemoteAt = 0L; nextWeatherAt = 0L; nextSrvAt = 0L; lastTap = 0L
                 } else lastTap = now
             }
-            return null
+            redraw()
         }
 
         // ---------- данные ----------
@@ -493,6 +532,7 @@ class InfoWallpaperService : WallpaperService() {
                 else renderer.draw(c, width, height, fd)
                 // чёрный низ — поверх всего, включая свечение
                 renderer.drawBottomShade(c, width, height, cfg)
+                if (renderer.drawTapFx(c)) handler.postDelayed({ redraw() }, 16)   // анимация кольца даже при FPS 0
             } catch (_: Exception) {
                 // поверхность могла исчезнуть
             } finally {

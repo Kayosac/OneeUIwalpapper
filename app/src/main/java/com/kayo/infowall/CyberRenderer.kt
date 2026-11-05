@@ -99,6 +99,30 @@ class CyberRenderer {
             ?: srvRects.indices.firstOrNull { srvRects[it].contains(x, y) }?.let { "srv:$it" }
     }
 
+    // ---------- отклик на тап: расходящееся кольцо в точке касания (экранные пиксели) ----------
+    private var tapX = 0f
+    private var tapY = 0f
+    private var tapAtMs = 0L
+    private val tapP = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+
+    fun tapAt(x: Float, y: Float) { tapX = x; tapY = y; tapAtMs = android.os.SystemClock.uptimeMillis() }
+
+    /** Рисует кольцо; true — анимация ещё идёт (нужен следующий кадр). */
+    fun drawTapFx(c: Canvas): Boolean {
+        val k = (android.os.SystemClock.uptimeMillis() - tapAtMs) / 420f
+        if (tapAtMs == 0L || k >= 1f) return false
+        val s = screenScale
+        val a = 1f - k
+        tapP.color = withA(accent, 0.9f * a)
+        tapP.strokeWidth = 2.5f * s
+        tapP.setShadowLayer(8f * s, 0f, 0f, withA(accent, 0.8f * a))
+        c.drawCircle(tapX, tapY, (8f + 30f * k) * s, tapP)
+        tapP.clearShadowLayer()
+        val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = withA(Color.WHITE, a) }
+        c.drawCircle(tapX, tapY, 3f * s * (1f - k * 0.5f), dot)
+        return true
+    }
+
     private fun toScreen(out: RectF, l: Float, t: Float, r: Float, b: Float, ui: Float) {
         val k = ui * screenScale
         out.set(screenOx + l * k, t * k, screenOx + r * k, b * k)
