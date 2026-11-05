@@ -36,6 +36,7 @@ class FrameData(
     val weatherNote: String?,
     val city: String,
     val mesh: WireMesh?,
+    val news: List<Headline> = emptyList(),
 )
 
 /**
@@ -587,22 +588,41 @@ class CyberRenderer {
 
     // ================= бегущая строка =================
 
+    private var tickerKey = ""
+    private var tickerMsg = ""
+
     private fun drawTicker(c: Canvas, f: FrameData) {
-        if (f.cfg.url.isBlank()) return
+        val newsOn = f.cfg.news && f.news.isNotEmpty()
+        if (f.cfg.url.isBlank() && !newsOn) return
         val top = 240f; val bottom = 274f
         fill.shader = null
         fill.color = withA(accent, 0.32f)
         c.drawRect(48f, top, uiR, top + 1f, fill)
         c.drawRect(48f, bottom - 1f, uiR, bottom, fill)
 
-        val items = f.remote?.items.orEmpty()
-        val msg = when {
-            f.remoteError != null && items.isEmpty() -> "ИСТОЧНИК ▸ ОШИБКА: ${f.remoteError}"
-            items.isEmpty() -> "ИСТОЧНИК ▸ ЗАГРУЗКА…"
-            else -> (f.remote?.title?.let { "${it.uppercase()} ▸ " } ?: "ИСТОЧНИК ▸ ") +
-                items.joinToString("   //   ") { "${it.label.uppercase()}: ${it.value}" + if (it.state == State.BAD || it.state == State.WARN) " [!]" else "" }
-        } + "   //   "
-        text.typeface = labelFace; text.textSize = 15f; text.letterSpacing = 0.12f; text.color = accent
+        // строку собираем только при изменении данных — не каждый кадр
+        val key = "${System.identityHashCode(f.remote)}|${f.remoteError}|${System.identityHashCode(f.news)}|${f.cfg.url.isBlank()}|$newsOn"
+        if (key != tickerKey) {
+            tickerKey = key
+            val parts = ArrayList<String>()
+            if (f.cfg.url.isNotBlank()) {
+                val items = f.remote?.items.orEmpty()
+                parts += when {
+                    f.remoteError != null && items.isEmpty() -> "ИСТОЧНИК ▸ ОШИБКА: ${f.remoteError}"
+                    items.isEmpty() -> "ИСТОЧНИК ▸ ЗАГРУЗКА…"
+                    else -> (f.remote?.title?.let { "${it.uppercase()} ▸ " } ?: "ИСТОЧНИК ▸ ") +
+                        items.joinToString("   //   ") { "${it.label.uppercase()}: ${it.value}" + if (it.state == State.BAD || it.state == State.WARN) " [!]" else "" }
+                }
+            }
+            if (newsOn) {
+                parts += "НОВОСТИ ▸ " + f.news.joinToString("   //   ") { h ->
+                    if (h.source.isNullOrBlank()) h.title else "${h.title} · ${h.source}"
+                }
+            }
+            tickerMsg = parts.joinToString("   //   ") + "   //   "
+        }
+        val msg = tickerMsg
+        text.typeface = labelFace; text.textSize = 15f; text.letterSpacing = 0.06f; text.color = accent
         val tw = text.measureText(msg)
         if (tw <= 0f) return
         c.save()

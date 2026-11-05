@@ -51,6 +51,8 @@ class SettingsActivity : Activity() {
     private lateinit var sfUrl: EditText
     private lateinit var sfToken: EditText
     private lateinit var modelStatus: TextView
+    private lateinit var swNews: Switch
+    private lateinit var newsRegion: EditText
     private lateinit var url: EditText
     private lateinit var token: EditText
     private lateinit var interval: EditText
@@ -132,6 +134,13 @@ class SettingsActivity : Activity() {
         col += sfToken
         col += button("Скачать с Sketchfab") { downloadSketchfab() }
         modelStatus = status(""); col += modelStatus
+
+        // --- новости ---
+        col += header("Бегущая строка")
+        swNews = switch("Новости Google на русском", cfg.news); col += swNews
+        col += label("Регион подборки: RU, KZ, BY, UA… (две буквы)")
+        newsRegion = field("RU", cfg.newsRegion, InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS)
+        col += newsRegion
 
         // --- источник ---
         col += header("Источник данных для бегущей строки (необязательно)")
@@ -222,6 +231,8 @@ class SettingsActivity : Activity() {
             .putFloat(Prefs.K_MODEL_SPEED, (modelSpeed.text.toString().replace(',', '.').toFloatOrNull() ?: 1f).coerceIn(0f, 3f))
             .putString(Prefs.K_SF_URL, sfUrl.text.toString().trim())
             .putString(Prefs.K_SF_TOKEN, sfToken.text.toString().trim())
+            .putBoolean(Prefs.K_NEWS, swNews.isChecked)
+            .putString(Prefs.K_NEWS_REGION, newsRegion.text.toString().trim().uppercase().filter { it.isLetter() }.take(2).ifEmpty { "RU" })
             .putString(Prefs.K_URL, u)
             .putString(Prefs.K_TOKEN, token.text.toString().trim())
             .putInt(Prefs.K_INTERVAL, (interval.text.toString().toIntOrNull() ?: 300).coerceAtLeast(Prefs.MIN_INTERVAL))

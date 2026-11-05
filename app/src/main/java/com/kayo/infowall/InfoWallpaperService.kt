@@ -45,6 +45,9 @@ class InfoWallpaperService : WallpaperService() {
         private var weatherNote: String? = null
         private var nextWeatherAt = 0L
         private var weatherBusy = false
+        private var news: List<Headline> = emptyList()
+        private var nextNewsAt = 0L
+        private var newsBusy = false
         private var mesh: WireMesh? = null
         private var meshKey = ""
         private var fontKey = ""
@@ -116,8 +119,10 @@ class InfoWallpaperService : WallpaperService() {
             if (old.lat != cfg.lat || old.lon != cfg.lon || old.weather != cfg.weather) {
                 weather = null; weatherNote = null
             }
+            if (old.newsRegion != cfg.newsRegion) news = emptyList()
             nextRemoteAt = 0L
             nextWeatherAt = 0L
+            nextNewsAt = 0L
             renderer.invalidateTime()
             loadMesh()
             loadFonts()
@@ -146,6 +151,7 @@ class InfoWallpaperService : WallpaperService() {
             if (now >= nextSlowAt) { stats.sampleSlow(); nextSlowAt = now + 10_000 }
             maybeFetchRemote(now)
             maybeFetchWeather(now)
+            maybeFetchNews(now)
         }
 
         private fun maybeFetchRemote(now: Long) {
@@ -163,6 +169,20 @@ class InfoWallpaperService : WallpaperService() {
                             .onFailure { remoteError = it.message ?: it.javaClass.simpleName }
                     }
                     nextRemoteAt = SystemClock.elapsedRealtime() + if (r.isSuccess) interval else minOf(interval, 60_000L)
+                }
+            }
+        }
+
+        private fun maybeFetchNews(now: Long) {
+            if (!cfg.news || newsBusy || now < nextNewsAt) return
+            newsBusy = true
+            val region = cfg.newsRegion
+            submit {
+                val r = runCatching { News.fetch(region).shuffled() }
+                handler.post {
+                    newsBusy = false
+                    r.onSuccess { if (it.isNotEmpty()) news = it }
+                    nextNewsAt = SystemClock.elapsedRealtime() + if (r.isSuccess) 20 * 60_000L else 3 * 60_000L
                 }
             }
         }
@@ -232,7 +252,7 @@ class InfoWallpaperService : WallpaperService() {
             try {
                 c = holder.lockHardwareCanvas() ?: return
                 val t = (SystemClock.elapsedRealtime() - startedAt) / 1000f
-                val fd = FrameData(cfg, if (cfg.fps <= 0) 0f else t, stats, remote, remoteError, weather, weatherNote, cfg.city, mesh)
+                val fd = FrameData(cfg, if (cfg.fps <= 0) 0f else t, stats, remote, remoteError, weather, weatherNote, cfg.city, mesh, news)
                 if (Build.VERSION.SDK_INT >= 31 && cfg.glow > 0f && c.isHardwareAccelerated) drawWithBloom(c, fd)
                 else renderer.draw(c, width, height, fd)
             } catch (_: Exception) {

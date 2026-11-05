@@ -33,6 +33,8 @@ data class Config(
     val fps: Int,
     val glow: Float,
     val uiScale: Float,
+    val news: Boolean,
+    val newsRegion: String,
     val font: FontPreset,
     val fontVersion: Int,
     val yawDeg: Float,
@@ -57,6 +59,8 @@ object Prefs {
     const val K_FPS = "fps"
     const val K_GLOW = "glow"
     const val K_UI_SCALE = "ui_scale"
+    const val K_NEWS = "news"
+    const val K_NEWS_REGION = "news_region"
     const val K_FONT = "font"
     const val K_FONT_VER = "font_ver"
     const val K_YAW = "yaw"
@@ -91,6 +95,8 @@ object Prefs {
             fps = p.getInt(K_FPS, 20).coerceIn(0, 30),
             glow = p.getFloat(K_GLOW, 1f).coerceIn(0f, 2f),
             uiScale = p.getFloat(K_UI_SCALE, 0.8f).coerceIn(0.6f, 1f),
+            news = p.getBoolean(K_NEWS, true),
+            newsRegion = p.getString(K_NEWS_REGION, "RU").orEmpty().ifBlank { "RU" },
             font = runCatching { FontPreset.valueOf(p.getString(K_FONT, "FINAL")!!) }.getOrDefault(FontPreset.FINAL),
             fontVersion = p.getInt(K_FONT_VER, 0),
             yawDeg = p.getFloat(K_YAW, 24f).coerceIn(0f, 34f),
