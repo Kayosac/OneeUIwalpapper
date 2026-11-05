@@ -35,19 +35,19 @@ class TrendGame(
  * (у SteamDB API нет, а сбор с сайта они запрещают):
  *  - NEW  — игра впервые попала в топ-100 по онлайну (ISteamChartsService, место неделю назад отсутствует);
  *  - ▲N   — поднялась в этом топе на N ≥ 15 мест за неделю;
- *  - HOT  — онлайн ≥ 1000 при малом числе отзывов (онлайн / (отзывы + 100) ≥ 0.5) у игры не старше года:
+ *  - HOT  — онлайн ≥ 1000 при малом числе отзывов (онлайн / (отзывы + 100) ≥ 0.5) у игры не старше 3 месяцев:
  *           так выглядит внезапный хит, пока отзывы не догнали игроков;
  *  - WISH — невышедшая игра со свежей страницей (большой appid) уже высоко в Top Wishlists магазина;
  *           со второго дня — ещё и рывок по месту в Top Wishlists относительно вчера.
- * Вышедшие игры попадают в список, только если вышли не раньше чем год назад.
+ * Вышедшие игры попадают в список, только если вышли не раньше чем 3 месяца назад.
  * Пул: топ-100 по онлайну, популярные новинки, лидеры продаж, топ-200 по вишлистам.
  * Отдаёт [ROWS] самых сильных сигналов; ⟳ на виджете собирает список заново.
  */
 object SteamTrends {
 
     const val ROWS = 15
-    const val MAX = 60        // кандидатов на проверку перед отбором 15 (многие отсеются по дате выхода)
-    private const val FRESH_DAYS = 365
+    const val MAX = 80        // кандидатов на проверку перед отбором 15 (многие отсеются по дате выхода)
+    private const val FRESH_DAYS = 90
     private const val PREFS = "infowall_steam2"
     private const val API = "https://api.steampowered.com"
     private const val STORE = "https://store.steampowered.com"
@@ -101,7 +101,7 @@ object SteamTrends {
             val m = details(meta, id, cc) ?: return@pmap null
             if (m.optString("t") != "game") return@pmap null
             val rel = m.optLong("r", -1L)
-            if (rel <= 0 || now - rel > 365 * DAY) return@pmap null
+            if (rel <= 0 || now - rel > FRESH_DAYS * DAY) return@pmap null
             val revs = cachedReviews(reviews, id, now) ?: return@pmap null
             Triple(id, rel, revs)
         }
