@@ -414,11 +414,11 @@ class CyberRenderer {
         text.letterSpacing = 0f
         val full = "$hh:$mm"
 
-        // мягкий поворот: правый край ближе к зрителю
+        // мягкий поворот: правый край ближе к зрителю (как в макете: rotateY(-16°), перспектива 1100)
         c.save()
         camera.save()
-        camera.setLocation(0f, 0f, -14f)
-        camera.rotateY(16f)
+        camera.setLocation(0f, 0f, -1100f / 72f)
+        camera.rotateY(-16f)
         camera.getMatrix(matrix)
         camera.restore()
         matrix.preTranslate(-x, -(base - 38f))
