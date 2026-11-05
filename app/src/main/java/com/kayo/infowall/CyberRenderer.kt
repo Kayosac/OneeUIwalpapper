@@ -35,14 +35,13 @@ class FrameData(
     val weather: WeatherData?,
     val weatherNote: String?,
     val city: String,
-    val mesh: WireMesh?,
     val news: List<Headline> = emptyList(),
     val rates: Rates? = null,
 )
 
 /**
  * Концепт «4.3 · Циан»: рельеф из треугольников, полосатое солнце в точке схода,
- * вращающийся каркас, HUD с часами, метриками, погодой и календарём.
+ * HUD с часами, метриками, погодой и календарём.
  * Рисует в макетных координатах 1280×800 и масштабирует под экран.
  */
 class CyberRenderer {
@@ -113,7 +112,6 @@ class CyberRenderer {
     private val fogP = Paint()
     private val bottomP = Paint()
     private val horizonP = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val wireP = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
 
     private val rect = RectF()
     private val path = Path()
@@ -134,13 +132,6 @@ class CyberRenderer {
     private val colLines = FloatArray(cols * (rows - 1) * 4)
     private val diagLines = FloatArray((rows - 1) * (cols - 1) * 4)
 
-    // ---------- модель ----------
-    private var frontLines = FloatArray(0)
-    private var backLines = FloatArray(0)
-    private var silLines = FloatArray(0)
-    private var front = BooleanArray(0)
-    private var px = FloatArray(0)
-    private var py = FloatArray(0)
 
     // ---------- иконки погоды (в квадрате 26×22) ----------
     private val cloudPath = Path().apply {
@@ -337,8 +328,6 @@ class CyberRenderer {
         horizonP.alpha = (255 * pulse).roundToInt().coerceIn(0, 255)
         c.drawRect(xl, HZ - 1.5f, xr, HZ + 1.5f, horizonP)
 
-        // каркасная модель в центре солнца
-        f.mesh?.let { drawMesh(c, it, vp, 446f, t * 0.55f * f.cfg.modelSpeed + 0.6f) }
 
         // частицы поднимаются из точки схода
         for (p in 0 until 12) {
@@ -377,61 +366,6 @@ class CyberRenderer {
                 gx[r][k] = sx; gy[r][k] = sy
             }
         }
-    }
-
-    private fun drawMesh(c: Canvas, m: WireMesh, cx: Float, cy: Float, theta: Float) {
-        val n = m.vertexCount
-        if (px.size < n) { px = FloatArray(n); py = FloatArray(n) }
-        val nf = m.faceCount
-        if (front.size < nf) front = BooleanArray(nf)
-        val need = m.edgeCount * 4
-        if (frontLines.size < need) { frontLines = FloatArray(need); backLines = FloatArray(need); silLines = FloatArray(need) }
-        val ct = cos(theta); val st = sin(theta)
-        val al = -0.32f; val ca = cos(al); val sa = sin(al)
-        val d = 7f; val sc = 560f
-        val v = m.verts
-        for (i in 0 until n) {
-            val x = v[i * 3]; val y = v[i * 3 + 1]; val z = v[i * 3 + 2]
-            val x1 = x * ct + z * st
-            val z1 = -x * st + z * ct
-            val y2 = y * ca - z1 * sa
-            val z2 = y * sa + z1 * ca
-            val k = sc / (d - z2)
-            px[i] = cx + x1 * k
-            py[i] = cy - y2 * k
-        }
-        // какие грани смотрят на камеру
-        val nm = m.normals
-        for (f in 0 until nf) {
-            val nx = nm[f * 3]; val ny = nm[f * 3 + 1]; val nz = nm[f * 3 + 2]
-            val z1 = -nx * st + nz * ct
-            front[f] = ny * sa + z1 * ca > 0f
-        }
-        var nfr = 0; var nb = 0; var ns = 0
-        val e = m.edges
-        val ef = m.edgeFaces
-        for (k in 0 until m.edgeCount) {
-            val a = e[k * 2]; val b = e[k * 2 + 1]
-            val fa = front[ef[k * 2]]
-            val f2 = ef[k * 2 + 1]
-            val fb = if (f2 >= 0) front[f2] else !fa
-            when {
-                fa != fb -> { silLines[ns++] = px[a]; silLines[ns++] = py[a]; silLines[ns++] = px[b]; silLines[ns++] = py[b] }
-                fa -> { frontLines[nfr++] = px[a]; frontLines[nfr++] = py[a]; frontLines[nfr++] = px[b]; frontLines[nfr++] = py[b] }
-                else -> { backLines[nb++] = px[a]; backLines[nb++] = py[a]; backLines[nb++] = px[b]; backLines[nb++] = py[b] }
-            }
-        }
-        wireP.color = withA(accent, 0.2f); wireP.strokeWidth = 0.8f
-        c.drawLines(backLines, 0, nb, wireP)
-        wireP.color = withA(accent, 0.3f); wireP.strokeWidth = 3.5f
-        c.drawLines(frontLines, 0, nfr, wireP)
-        wireP.color = withA(mix(accent, Color.WHITE, 0.45f), 0.85f); wireP.strokeWidth = 1.1f
-        c.drawLines(frontLines, 0, nfr, wireP)
-        // контур — самый яркий
-        wireP.color = withA(accent, 0.5f); wireP.strokeWidth = 7f
-        c.drawLines(silLines, 0, ns, wireP)
-        wireP.color = Color.rgb(220, 253, 255); wireP.strokeWidth = 2f
-        c.drawLines(silLines, 0, ns, wireP)
     }
 
     // ================= HUD =================

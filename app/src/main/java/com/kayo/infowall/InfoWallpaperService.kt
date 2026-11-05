@@ -51,8 +51,6 @@ class InfoWallpaperService : WallpaperService() {
         private var rates: Rates? = null
         private var nextRatesAt = 0L
         private var ratesBusy = false
-        private var mesh: WireMesh? = null
-        private var meshKey = ""
         private var fontKey = ""
         private var nextNetAt = 0L
         private var nextSlowAt = 0L
@@ -80,8 +78,12 @@ class InfoWallpaperService : WallpaperService() {
             stats = Stats(applicationContext)
             cfg = Prefs.load(applicationContext)
             Prefs.get(applicationContext).registerOnSharedPreferenceChangeListener(this)
-            loadMesh()
             loadFonts()
+            // остатки от 3D-моделей прошлых версий
+            runCatching {
+                java.io.File(filesDir, "model2.bin").delete()
+                java.io.File(filesDir, "model.bin").delete()
+            }
         }
 
         override fun onSurfaceChanged(holder: SurfaceHolder, format: Int, w: Int, h: Int) {
@@ -127,7 +129,6 @@ class InfoWallpaperService : WallpaperService() {
             nextWeatherAt = 0L
             nextNewsAt = 0L
             renderer.invalidateTime()
-            loadMesh()
             loadFonts()
             if (visible) {
                 handler.removeCallbacks(frame)
@@ -248,23 +249,6 @@ class InfoWallpaperService : WallpaperService() {
             }
         }
 
-        private fun loadMesh() {
-            val key = "${cfg.modelSource}|${cfg.modelVersion}"
-            if (key == meshKey) return
-            meshKey = key
-            when (cfg.modelSource) {
-                ModelSource.NONE -> mesh = null
-                ModelSource.DUCK -> mesh = Meshes.duck()
-                ModelSource.FILE, ModelSource.SKETCHFAB -> {
-                    val ctx = applicationContext
-                    submit {
-                        val m = Meshes.saved(ctx) ?: Meshes.duck()
-                        handler.post { if (meshKey == key) mesh = m }
-                    }
-                }
-            }
-        }
-
         private fun loadFonts() {
             val key = "${cfg.font}|${cfg.fontVersion}"
             if (key == fontKey) return
@@ -290,7 +274,7 @@ class InfoWallpaperService : WallpaperService() {
             try {
                 c = holder.lockHardwareCanvas() ?: return
                 val t = (SystemClock.elapsedRealtime() - startedAt) / 1000f
-                val fd = FrameData(cfg, if (cfg.fps <= 0) 0f else t, stats, remote, remoteError, weather, weatherNote, cfg.city, mesh, news, rates)
+                val fd = FrameData(cfg, if (cfg.fps <= 0) 0f else t, stats, remote, remoteError, weather, weatherNote, cfg.city, news, rates)
                 if (Build.VERSION.SDK_INT >= 31 && cfg.glow > 0f && c.isHardwareAccelerated) drawWithBloom(c, fd)
                 else renderer.draw(c, width, height, fd)
                 // чёрный низ — поверх всего, включая свечение

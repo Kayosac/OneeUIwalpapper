@@ -2,5 +2,5 @@
 <resources>
     <string name="app_name">InfoWall</string>
     <string name="converter_name">Конвертер</string>
-    <string name="wp_desc">Киберпанк-обои: рельеф, неоновое солнце, 3D-каркас, часы, погода, календарь и метрики планшета</string>
+    <string name="wp_desc">Киберпанк-обои: рельеф, неоновое солнце, часы, погода, календарь, курсы и метрики планшета</string>
 </resources>

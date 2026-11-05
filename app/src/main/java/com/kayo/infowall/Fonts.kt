@@ -61,6 +61,21 @@ object Fonts {
         }.getOrNull() ?: fallback
     }
 
+    @Throws(IOException::class)
+    fun readLimited(input: java.io.InputStream, limit: Long): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        val buf = ByteArray(64 * 1024)
+        var total = 0L
+        while (true) {
+            val n = input.read(buf)
+            if (n < 0) break
+            total += n
+            if (total > limit) throw IOException("файл больше ${limit / 1024 / 1024} МБ")
+            out.write(buf, 0, n)
+        }
+        return out.toByteArray()
+    }
+
     /** Сохраняет свой шрифт в личную папку приложения (в APK и репозиторий он не попадает). */
     @Throws(IOException::class)
     fun importCustom(ctx: Context, bytes: ByteArray) {

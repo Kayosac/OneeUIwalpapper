@@ -21,8 +21,6 @@ data class Item(val label: String, val value: String, val state: State = State.N
 
 data class RemoteData(val title: String?, val items: List<Item>)
 
-enum class ModelSource { DUCK, FILE, SKETCHFAB, NONE }
-
 data class Zone(val label: String, val id: String)
 
 data class Config(
@@ -49,11 +47,6 @@ data class Config(
     val lat: Double?,
     val lon: Double?,
     val city: String,
-    val modelSource: ModelSource,
-    val modelSpeed: Float,
-    val modelVersion: Int,
-    val sketchfabUrl: String,
-    val sketchfabToken: String,
 )
 
 object Prefs {
@@ -82,11 +75,6 @@ object Prefs {
     const val K_LAT = "lat"
     const val K_LON = "lon"
     const val K_CITY = "city"
-    const val K_MODEL_SRC = "model_src"
-    const val K_MODEL_SPEED = "model_speed"
-    const val K_MODEL_VER = "model_ver"
-    const val K_SF_URL = "sf_url"
-    const val K_SF_TOKEN = "sf_token"
 
     const val MIN_INTERVAL = 15
     const val DEFAULT_ACCENT = "#00E5FF"
@@ -125,12 +113,6 @@ object Prefs {
             lat = lat,
             lon = lon,
             city = p.getString(K_CITY, "").orEmpty(),
-            modelSource = runCatching { ModelSource.valueOf(p.getString(K_MODEL_SRC, "DUCK")!!) }
-                .getOrDefault(ModelSource.DUCK),
-            modelSpeed = p.getFloat(K_MODEL_SPEED, 1f).coerceIn(0f, 3f),
-            modelVersion = p.getInt(K_MODEL_VER, 0),
-            sketchfabUrl = p.getString(K_SF_URL, "").orEmpty().trim(),
-            sketchfabToken = p.getString(K_SF_TOKEN, "").orEmpty().trim(),
         )
     }
 

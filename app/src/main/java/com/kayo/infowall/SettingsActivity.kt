@@ -47,12 +47,6 @@ class SettingsActivity : Activity() {
     private lateinit var fontGroup: RadioGroup
     private val fontIds = HashMap<FontPreset, Int>()
     private lateinit var fontStatus: TextView
-    private lateinit var modelGroup: RadioGroup
-    private val modelIds = HashMap<ModelSource, Int>()
-    private lateinit var modelSpeed: EditText
-    private lateinit var sfUrl: EditText
-    private lateinit var sfToken: EditText
-    private lateinit var modelStatus: TextView
     private lateinit var swConverter: Switch
     private lateinit var currencies: EditText
     private lateinit var swNews: Switch
@@ -116,32 +110,6 @@ class SettingsActivity : Activity() {
         col += button("Определить местоположение") { locate() }
         placeStatus = status(placeText(cfg)); col += placeStatus
 
-        // --- модель ---
-        col += header("3D-модель в центре")
-        modelGroup = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL }
-        for ((src, title) in listOf(
-            ModelSource.DUCK to "Уточка (встроенная)",
-            ModelSource.FILE to "Свой файл",
-            ModelSource.SKETCHFAB to "Sketchfab по ссылке",
-            ModelSource.NONE to "Без модели",
-        )) {
-            val id = View.generateViewId()
-            modelIds[src] = id
-            modelGroup.addView(RadioButton(this).apply { this.id = id; text = title; minHeight = dp(44) })
-        }
-        modelGroup.check(modelIds.getValue(cfg.modelSource))
-        col += modelGroup
-        col += label("Скорость вращения (0–3)")
-        modelSpeed = field("1", trim(cfg.modelSpeed), InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL)
-        col += modelSpeed
-        col += button("Выбрать файл .glb или .zip с glTF") { pickFile() }
-        col += label("Sketchfab: ссылка на модель и личный API-токен (sketchfab.com → Settings → Password & API)")
-        sfUrl = field("https://sketchfab.com/3d-models/…", cfg.sketchfabUrl, InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI)
-        col += sfUrl
-        sfToken = field("API-токен", cfg.sketchfabToken, InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD)
-        col += sfToken
-        col += button("Скачать с Sketchfab") { downloadSketchfab() }
-        modelStatus = status(""); col += modelStatus
 
         // --- курсы ---
         col += header("Курсы валют")
@@ -200,7 +168,7 @@ class SettingsActivity : Activity() {
         fontStatus.text = "Загружаю шрифт…"
         Thread {
             val msg = try {
-                val bytes = contentResolver.openInputStream(uri)?.use { Meshes.readAll(it, 30L * 1024 * 1024) }
+                val bytes = contentResolver.openInputStream(uri)?.use { Fonts.readLimited(it, 30L * 1024 * 1024) }
                     ?: throw java.io.IOException("не открыть файл")
                 Fonts.importCustom(this, bytes)
                 val p = Prefs.get(this)
@@ -216,9 +184,6 @@ class SettingsActivity : Activity() {
             runOnUiThread { if (!isFinishing) fontStatus.text = msg }
         }.start()
     }
-
-    private fun selectedSource(): ModelSource =
-        modelIds.entries.firstOrNull { it.value == modelGroup.checkedRadioButtonId }?.key ?: ModelSource.DUCK
 
     private fun save(): Boolean {
         val u = url.text.toString().trim()
@@ -244,11 +209,7 @@ class SettingsActivity : Activity() {
             .putFloat(Prefs.K_YAW, (yaw.text.toString().toFloatOrNull() ?: 24f).coerceIn(0f, 34f))
             .putString(Prefs.K_ZONES, zones.text.toString().trim())
             .putBoolean(Prefs.K_WEATHER, swWeather.isChecked)
-            .putString(Prefs.K_MODEL_SRC, selectedSource().name)
             .putString(Prefs.K_FONT, selectedFont().name)
-            .putFloat(Prefs.K_MODEL_SPEED, (modelSpeed.text.toString().replace(',', '.').toFloatOrNull() ?: 1f).coerceIn(0f, 3f))
-            .putString(Prefs.K_SF_URL, sfUrl.text.toString().trim())
-            .putString(Prefs.K_SF_TOKEN, sfToken.text.toString().trim())
             .putBoolean(Prefs.K_CONVERTER, swConverter.isChecked)
             .putString(Prefs.K_CURRENCIES, RatesSource.parseCodes(currencies.text.toString()).joinToString(", ").ifEmpty { Prefs.DEFAULT_CURRENCIES })
             .putBoolean(Prefs.K_NEWS, swNews.isChecked)
@@ -324,61 +285,11 @@ class SettingsActivity : Activity() {
 
     // ---------- модель ----------
 
-    private fun pickFile() {
-        val i = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            type = "*/*"
-        }
-        try {
-            startActivityForResult(i, REQ_FILE)
-        } catch (_: ActivityNotFoundException) {
-            toast("Нет приложения для выбора файлов")
-        }
-    }
-
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (resultCode != RESULT_OK) return
         val uri: Uri = data?.data ?: return
         if (requestCode == REQ_FONT) { importFont(uri); return }
-        if (requestCode != REQ_FILE) return
-        importModel(ModelSource.FILE) {
-            contentResolver.openInputStream(uri)?.use { Meshes.readAll(it) } ?: throw java.io.IOException("не открыть файл")
-        }
-    }
-
-    private fun downloadSketchfab() {
-        val link = sfUrl.text.toString().trim()
-        val tok = sfToken.text.toString().trim()
-        hideKeyboard()
-        Prefs.get(this).edit().putString(Prefs.K_SF_URL, link).putString(Prefs.K_SF_TOKEN, tok).apply()
-        importModel(ModelSource.SKETCHFAB) {
-            Meshes.downloadSketchfab(link, tok) { msg -> runOnUiThread { modelStatus.text = msg } }
-        }
-    }
-
-    private fun importModel(src: ModelSource, read: () -> ByteArray) {
-        modelStatus.text = "Загружаю…"
-        Thread {
-            val text = try {
-                val bytes = read()
-                runOnUiThread { modelStatus.text = "Упрощаю модель (${bytes.size / 1024} КБ)…" }
-                val mesh = Meshes.fromBytes(bytes)
-                Meshes.save(this, mesh)
-                val p = Prefs.get(this)
-                p.edit()
-                    .putString(Prefs.K_MODEL_SRC, src.name)
-                    .putInt(Prefs.K_MODEL_VER, p.getInt(Prefs.K_MODEL_VER, 0) + 1)
-                    .apply()
-                runOnUiThread { modelGroup.check(modelIds.getValue(src)) }
-                "Готово: ${mesh.vertexCount} вершин, ${mesh.edgeCount} рёбер — уже на обоях"
-            } catch (e: OutOfMemoryError) {
-                "Слишком тяжёлая модель для памяти планшета"
-            } catch (e: Exception) {
-                "Ошибка: ${e.message ?: e.javaClass.simpleName}"
-            }
-            runOnUiThread { if (!isFinishing) modelStatus.text = text }
-        }.start()
     }
 
     // ---------- источник ----------
@@ -475,7 +386,6 @@ class SettingsActivity : Activity() {
 
     companion object {
         private const val REQ_LOCATION = 41
-        private const val REQ_FILE = 42
         private const val REQ_FONT = 43
     }
 }
