@@ -139,7 +139,7 @@ class SettingsActivity : Activity() {
 
         // --- открытие приложений ---
         col += header("Открытие приложений с обоев")
-        col += label("Тап по часам — «Часы», по календарю — Google Календарь, по целям — окно целей. Android разрешает обоям открывать приложения только с разрешением «Поверх других приложений».")
+        col += label("Тап по часам — «Часы», по календарю — Google Календарь, по целям — окно целей, по игре — Steam в Chrome, по серверу — личный кабинет хостинга. Android разрешает обоям открывать приложения только с разрешением «Поверх других приложений».")
         col += button("Выдать разрешение") {
             try {
                 startActivity(Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
@@ -151,7 +151,7 @@ class SettingsActivity : Activity() {
 
         // --- серверы ---
         col += header("Серверы (до ${Servers.MAX})")
-        col += label("На сервере: curl -fsSL https://raw.githubusercontent.com/Kayosac/OneeUIwalpapper/main/agent/install.sh | sudo bash — и вставь сюда строки iwa1|…, по одной на строку")
+        col += label("На сервере: curl -fsSL https://raw.githubusercontent.com/Kayosac/OneeUIwalpapper/main/agent/install.sh | sudo bash — и вставь сюда строки iwa1|…, по одной на строку. Тап по серверу на обоях открывает личный кабинет хостинга в Chrome (AdminVPS и netcup — сами; для других допиши в конец строки |https://адрес-панели).")
         servers = field("iwa1|имя|https://IP:порт|токен|отпечаток", p.getString(Prefs.K_SERVERS, "").orEmpty(),
             InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS).apply {
             isSingleLine = false; minLines = 2; maxLines = 4

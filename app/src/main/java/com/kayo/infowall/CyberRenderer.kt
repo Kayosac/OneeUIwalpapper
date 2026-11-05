@@ -88,6 +88,7 @@ class CyberRenderer {
     private val clockOnScreen = RectF()
     private val calendarOnScreen = RectF()
     private val goalsOnScreen = RectF()
+    private val srvRects = ArrayList<RectF>()
 
     /** "clock" / "calendar" / "goals" под точкой тапа или null. */
     fun appHit(x: Float, y: Float): String? = when {
@@ -95,6 +96,7 @@ class CyberRenderer {
         !calendarOnScreen.isEmpty && calendarOnScreen.contains(x, y) -> "calendar"
         !goalsOnScreen.isEmpty && goalsOnScreen.contains(x, y) -> "goals"
         else -> steamRows.indices.firstOrNull { steamRows[it].contains(x, y) }?.let { "steam:${steamIds[it]}" }
+            ?: srvRects.indices.firstOrNull { srvRects[it].contains(x, y) }?.let { "srv:$it" }
         else -> null
     }
 
@@ -458,8 +460,11 @@ class CyberRenderer {
         netRow(c, "↑", st.txNow, st.txHist, st.histCount, bx, bEnd, 172f)
 
         // --- серверы ---
+        while (srvRects.size > nSrv) srvRects.removeAt(srvRects.size - 1)
+        while (srvRects.size < nSrv) srvRects += RectF()
         for (i in 0 until nSrv) {
             val sx = bEnd + gap + i * (srvW + gap)
+            toScreen(srvRects[i], sx, 40f, sx + srvW + gap / 2f, 205f, f.cfg.uiScale)
             fill.shader = null
             fill.color = withA(accent, 0.32f)
             c.drawRect(sx, 50f, sx + 1f, 198f, fill)

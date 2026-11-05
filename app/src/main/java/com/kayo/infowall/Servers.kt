@@ -12,8 +12,11 @@ import javax.net.ssl.SSLSocketFactory
 import javax.net.ssl.TrustManager
 import javax.net.ssl.X509TrustManager
 
-/** Строка подключения из install.sh: iwa1|ИМЯ|https://IP:ПОРТ|ТОКЕН|SHA256-отпечаток. */
-data class ServerConf(val name: String, val url: String, val token: String, val fp: String) {
+/**
+ * Строка подключения из install.sh: iwa1|ИМЯ|https://IP:ПОРТ|ТОКЕН|SHA256-отпечаток[|ссылка на панель хостинга].
+ * Без ссылки для известных хостингов подставляется их личный кабинет.
+ */
+data class ServerConf(val name: String, val url: String, val token: String, val fp: String, val panel: String? = null) {
     /** Адрес для подписи: хост из URL без схемы и порта. */
     val ip: String get() = url.removePrefix("https://").substringBefore('/').let {
         if (it.startsWith("[")) it.substringAfter('[').substringBefore(']') else it.substringBeforeLast(':')
@@ -28,7 +31,7 @@ class ServerMetrics(
 )
 
 /** Что видно на обоях: хостинг, IP, графики и жив ли сервер. */
-class ServerView(val name: String, val ip: String, val metrics: ServerMetrics?, val online: Boolean?, val error: String?)
+class ServerView(val name: String, val ip: String, val metrics: ServerMetrics?, val online: Boolean?, val error: String?, val panel: String? = null)
 
 object Servers {
 
@@ -42,14 +45,22 @@ object Servers {
 
     fun parseLine(line: String): ServerConf? {
         val p = line.trim().split('|')
-        if (p.size != 5 || p[0] != "iwa1") return null
+        if ((p.size != 5 && p.size != 6) || p[0] != "iwa1") return null
         val name = p[1].trim().take(12).ifEmpty { "VPS" }
         val url = p[2].trim().trimEnd('/')
         val token = p[3].trim()
         val fp = p[4].trim().lowercase().replace(":", "")
         if (!url.startsWith("https://")) return null
         if (token.length < 24 || !fp.matches(Regex("[0-9a-f]{64}"))) return null
-        return ServerConf(name, url, token, fp)
+        val panel = p.getOrNull(5)?.trim()?.takeIf { it.startsWith("https://") || it.startsWith("http://") } ?: defaultPanel(name)
+        return ServerConf(name, url, token, fp, panel)
+    }
+
+    /** Личные кабинеты известных хостингов (по имени из строки подключения). */
+    fun defaultPanel(name: String): String? = when {
+        name.contains("ADMINVPS", true) -> "https://my.adminvps.ru/"
+        name.contains("NETCUP", true) -> "https://www.customercontrolpanel.de/"
+        else -> null
     }
 
     /**

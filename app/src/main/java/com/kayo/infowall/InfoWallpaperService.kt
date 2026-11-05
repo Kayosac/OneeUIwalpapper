@@ -186,10 +186,15 @@ class InfoWallpaperService : WallpaperService() {
                     "calendar" -> { openCalendar(); return null }
                     "goals" -> { launchFirst(android.content.Intent(applicationContext, GoalsActivity::class.java)); return null }
                     null -> {}
-                    else -> renderer.appHit(tx, ty)?.removePrefix("steam:")?.toIntOrNull()?.let { id ->
-                        // страница игры: откроется в приложении Steam, если оно стоит, иначе в браузере
-                        launchFirst(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://store.steampowered.com/app/$id/")))
-                        return null
+                    else -> {
+                        val hit = renderer.appHit(tx, ty).orEmpty()
+                        // игра — страница в Steam в Chrome; сервер — личный кабинет хостинга в Chrome
+                        val url = when {
+                            hit.startsWith("steam:") -> hit.removePrefix("steam:").toIntOrNull()?.let { "https://store.steampowered.com/app/$it/" }
+                            hit.startsWith("srv:") -> hit.removePrefix("srv:").toIntOrNull()?.let { serverViews.getOrNull(it)?.panel }
+                            else -> null
+                        }
+                        if (url != null) { openInChrome(url); return null }
                     }
                 }
                 val now = SystemClock.elapsedRealtime()
@@ -274,7 +279,7 @@ class InfoWallpaperService : WallpaperService() {
                     st.fails >= 2 || st.lastOk == 0L || t - st.lastOk > 90_000L -> false
                     else -> true                                              // один сбой подряд — ещё не тревога
                 }
-                ServerView(conf.name, conf.ip, st?.metrics, online, st?.error)
+                ServerView(conf.name, conf.ip, st?.metrics, online, st?.error, conf.panel)
             }
         }
 
@@ -316,6 +321,15 @@ class InfoWallpaperService : WallpaperService() {
                 } catch (_: SecurityException) {
                 }
             }
+        }
+
+        /** Ссылка в Chrome; если Chrome нет — в браузере по умолчанию. */
+        private fun openInChrome(url: String) {
+            val uri = android.net.Uri.parse(url)
+            launchFirst(
+                android.content.Intent(android.content.Intent.ACTION_VIEW, uri).setPackage("com.android.chrome"),
+                android.content.Intent(android.content.Intent.ACTION_VIEW, uri).addCategory(android.content.Intent.CATEGORY_BROWSABLE),
+            )
         }
 
         private fun mainOf(pkg: String) = android.content.Intent(android.content.Intent.ACTION_MAIN)
