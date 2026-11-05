@@ -1,0 +1,10 @@
+{
+  "title": "Мой хаб",
+  "items": [
+    { "label": "Сервер", "value": "online", "state": "ok" },
+    { "label": "CPU", "value": "37%", "state": "ok" },
+    { "label": "Диск", "value": "88%", "state": "warn" },
+    { "label": "Бэкап", "value": "вчера 03:10", "state": "ok" },
+    { "label": "Задачи", "value": "5 открыто" }
+  ]
+}
