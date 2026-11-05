@@ -94,7 +94,6 @@ open class InfoWallpaperService : WallpaperService() {
             stats = Stats(applicationContext)
             cfg = Prefs.load(applicationContext)
             Prefs.get(applicationContext).registerOnSharedPreferenceChangeListener(this)
-            if (!lockMode) { TapGate.refresh(applicationContext); TapGate.listen(gateListener) }
             setTouchEventsEnabled(!lockMode)   // касания, которые лаунчер пропускает к обоям
             loadFonts()
             // остатки от 3D-моделей прошлых версий
@@ -113,8 +112,6 @@ open class InfoWallpaperService : WallpaperService() {
 
         override fun onVisibilityChanged(v: Boolean) {
             visible = v
-            pendAt = 0L
-            if (v) TapGate.refresh(applicationContext)
             if (!v) closeFx(true)
             handler.removeCallbacks(frame)
             if (v) {
@@ -132,7 +129,6 @@ open class InfoWallpaperService : WallpaperService() {
         override fun onDestroy() {
             handler.removeCallbacksAndMessages(null)
             Prefs.get(applicationContext).unregisterOnSharedPreferenceChangeListener(this)
-            TapGate.unlisten(gateListener)
             io.shutdownNow()
             srvIo.shutdownNow()
             steamIo.shutdownNow()
@@ -183,43 +179,20 @@ open class InfoWallpaperService : WallpaperService() {
         // ---------- касания: свой детектор тапа (One UI Home не присылает COMMAND_TAP) ----------
         //
         // Лаунчер отдаёт обоям копию ВСЕХ касаний — и тех, что пришлись на иконки в меню приложений,
-        // папках, контекстных меню. Если на столе стоит «зона касаний» (TapZone.kt), действие выполняется
-        // только когда лаунчер подтвердил, что тап достался ей, то есть сверху ничего не открыто.
-        // Без зоны — по-старому, по любому тапу. Клавиатура суммы, пока открыта, берёт тапы сразу.
+        // папках, контекстных меню. Если включён «страж касаний» (TapGuard.kt), в момент тапа он
+        // проверяет, что лежит под пальцем: иконка, меню или чужое окно — тап не наш, обои молчат.
+        // Без стража — по-старому, по любому тапу.
 
         private var downX = 0f
         private var downY = 0f
         private var downAt = 0L
         private var downValid = false
         private var lastTouchTapAt = 0L
-        private var pendX = 0f
-        private var pendY = 0f
-        private var pendAt = 0L          // тап ждёт подтверждения зоны; 0 — нет
-        private var gateUsed = 0L        // подтверждение, которое уже потратили
-        private val gateListener: () -> Unit = { onGate() }
 
         private fun onRawTap(x: Float, y: Float) {
-            val now = SystemClock.elapsedRealtime()
-            val fx = fxEdit
-            if (fx != null && (renderer.padHit(x, y) != null || renderer.converterHit(x, y) != null)) {
-                pendAt = 0L
-                handleTap(x, y)
-                return
-            }
-            if (!TapGate.active) { handleTap(x, y); return }
-            // подтверждение могло прийти раньше нашего касания
-            val g = TapGate.lastAt
-            if (g > gateUsed && now - g < GATE_MS) { gateUsed = g; pendAt = 0L; handleTap(x, y); return }
-            pendX = x; pendY = y; pendAt = now
-        }
-
-        private fun onGate() {
-            if (!visible || lockMode) return
-            val g = TapGate.lastAt
-            if (pendAt != 0L && g - pendAt in -GATE_MS..GATE_MS && g > gateUsed) {
-                gateUsed = g; pendAt = 0L
-                handleTap(pendX, pendY)
-            }
+            val guard = TapGuardService.instance
+            if (guard != null && guard.ownsPoint(x.toInt(), y.toInt()) == true) return
+            handleTap(x, y)
         }
 
         override fun onTouchEvent(e: android.view.MotionEvent) {
@@ -700,10 +673,5 @@ open class InfoWallpaperService : WallpaperService() {
             // исходная сцена (нулевой сдвиг) + свечение поверх
             return RenderEffect.createBlendModeEffect(RenderEffect.createOffsetEffect(0f, 0f), halo, BlendMode.PLUS)
         }
-    }
-
-    companion object {
-        /** Сколько тап обоев и подтверждение зоны касаний могут расходиться во времени. */
-        const val GATE_MS = 700L
     }
 }

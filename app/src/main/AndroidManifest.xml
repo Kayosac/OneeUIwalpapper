@@ -38,18 +38,19 @@
              или иконкой «Конвертер» в списке приложений -->
         <receiver android:name=".UpdateReceiver" android:exported="false" />
 
-        <!-- прозрачная «зона касаний» на рабочем столе: тап по ней = тап по обоям, не по иконке -->
-        <receiver
-            android:name=".TapZoneProvider"
+        <!-- страж касаний: в момент тапа по обоям проверяет, не лежит ли под пальцем иконка или меню лаунчера -->
+        <service
+            android:name=".TapGuardService"
             android:exported="false"
-            android:label="@string/tz_name">
+            android:label="@string/guard_name"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
             <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="android.accessibilityservice.AccessibilityService" />
             </intent-filter>
             <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/tapzone_info" />
-        </receiver>
+                android:name="android.accessibilityservice"
+                android:resource="@xml/tapguard" />
+        </service>
 
         <activity
             android:name=".GoalsActivity"

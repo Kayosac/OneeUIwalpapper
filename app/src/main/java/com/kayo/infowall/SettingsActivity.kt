@@ -161,17 +161,16 @@ class SettingsActivity : Activity() {
         }
         overlayStatus = status(""); col += overlayStatus
 
-        // --- зона касаний ---
-        col += header("Зона касаний")
-        col += label("Лаунчер отдаёт обоям и тапы по иконкам в меню приложений и папках — без зоны тап по приложению может открыть ещё и виджет под ним. Поставь прозрачный виджет «InfoWall · зона касаний» и растяни его на панели обоев (или на весь стол): тапы по нему доходят до обоев, а по меню приложений и папкам — нет. Под зоной не работают жесты One UI на пустом месте (двойное касание для выключения экрана).")
+        // --- страж касаний ---
+        col += header("Касания")
+        col += label("Лаунчер отдаёт обоям и тапы по иконкам в меню приложений и папках — без стража тап по приложению может открыть ещё и виджет под ним. Страж — служба спецвозможностей InfoWall: в момент тапа по обоям смотрит, лежит ли под пальцем иконка, папка, меню или другое окно, и тогда виджет не срабатывает. Включи «InfoWall · касания» в Спецвозможностях → Установленные приложения. Если переключатель серый: Настройки → Приложения → InfoWall → ⋮ → «Разрешить ограниченные настройки».")
         tzStatus = status(""); col += tzStatus
-        col += button("Добавить зону касаний на рабочий стол") {
-            if (!runCatching { TapGate.requestPin(this) }.getOrDefault(false))
-                toast("Добавь вручную: долгое нажатие на столе → Виджеты → InfoWall · зона касаний")
-        }
-        col += switch("Показывать рамку зоны (на время настройки)", Prefs.get(this).getBoolean(TapGate.K_FRAME, true)) { v ->
-            Prefs.get(this).edit().putBoolean(TapGate.K_FRAME, v).apply()
-            TapGate.renderAll(this)
+        col += button("Открыть спецвозможности") {
+            try {
+                startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            } catch (_: ActivityNotFoundException) {
+                toast("Открой: Настройки → Спецвозможности → Установленные приложения")
+            }
         }
 
         // --- серверы ---
@@ -251,9 +250,12 @@ class SettingsActivity : Activity() {
         val ok = Build.VERSION.SDK_INT < 23 || android.provider.Settings.canDrawOverlays(this)
         overlayStatus.text = if (ok) "✓ Разрешение есть — часы и календарь на обоях открывают приложения"
         else "✗ Разрешения нет — тап по часам и календарю ничего не откроет"
-        TapGate.refresh(this)
-        tzStatus.text = if (TapGate.active) "✓ Зона касаний стоит — виджеты реагируют только на тапы по ней"
-        else "✗ Зоны нет — тапы по иконкам в меню приложений могут задеть виджеты"
+        tzStatus.text = when {
+            TapGuardService.instance != null -> "✓ Страж работает — тапы по меню приложений и папкам виджеты не задевают" +
+                TapGuardService.lastHit.takeIf { it.isNotEmpty() }?.let { "\nПоследний тап по обоям: $it" }.orEmpty()
+            TapGuardService.enabled(this) -> "… Страж включён, подключается"
+            else -> "✗ Страж выключен — тап по иконке в меню приложений может задеть виджет под ней"
+        }
         checkUpdate()
     }
 
