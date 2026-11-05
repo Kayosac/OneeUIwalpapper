@@ -51,6 +51,8 @@ data class Config(
     val servers: List<ServerConf>,
     val goals: List<Goal>,
     val steam: Boolean,
+    val math: Boolean,          // мини-виджет «формула»: плоскость z = f(x, y, t)
+    val mathFn: Int,
 )
 
 object Prefs {
@@ -83,6 +85,8 @@ object Prefs {
     const val K_CITY = "city"
     const val K_SERVERS = "servers"
     const val K_STEAM = "steam"
+    const val K_MATH = "math"
+    const val K_MATH_FN = "math_fn"
 
     const val MIN_INTERVAL = 15
     const val DEFAULT_ACCENT = "#00E5FF"
@@ -126,6 +130,8 @@ object Prefs {
             servers = Servers.parse(p.getString(K_SERVERS, "").orEmpty()),
             goals = Goals.parse(p.getString(Goals.PREF_KEY, null)),
             steam = p.getBoolean(K_STEAM, true),
+            math = p.getBoolean(K_MATH, true),
+            mathFn = p.getInt(K_MATH_FN, 0).coerceIn(0, MathPlane.FNS.size - 1),
         )
     }
 

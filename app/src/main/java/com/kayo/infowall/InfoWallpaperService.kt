@@ -245,6 +245,11 @@ open class InfoWallpaperService : WallpaperService() {
                             h.startsWith("srv:") -> h.removePrefix("srv:").toIntOrNull()?.let { serverViews.getOrNull(it)?.panel }
                             else -> null
                         }
+                        // кнопка «формулы» — переключить плоскость (настройка, обои подхватят её сами)
+                        h.removePrefix("math:").takeIf { h.startsWith("math:") }?.toIntOrNull()?.let { i ->
+                            Prefs.get(applicationContext).edit().putInt(Prefs.K_MATH_FN, i).apply()
+                            return@run
+                        }
                         if (url != null) { openInChrome(url); return@run }
                     }
                 }

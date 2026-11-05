@@ -102,6 +102,7 @@ class CyberRenderer {
         !calendarOnScreen.isEmpty && calendarOnScreen.contains(x, y) -> "calendar"
         !goalsOnScreen.isEmpty && goalsOnScreen.contains(x, y) -> "goals"
         !memOnScreen.isEmpty && memOnScreen.contains(x, y) -> "memory"
+        mathBtns.any { !it.isEmpty && it.contains(x, y) } -> "math:" + mathBtns.indexOfFirst { !it.isEmpty && it.contains(x, y) }
         !steamNextRect.isEmpty && steamNextRect.contains(x, y) -> "steamnext"
         else -> steamRows.indices.firstOrNull { steamRows[it].contains(x, y) }?.let { "steam:${steamIds[it]}" }
             ?: srvRects.indices.firstOrNull { srvRects[it].contains(x, y) }?.let { "srv:$it" }
@@ -251,7 +252,7 @@ class CyberRenderer {
         drawScene(c, f, vp, yawNow, ext, dh)
         if (f.lock) {
             // экран блокировки: только сцена — ни часов, ни плашек, ни зон тапа
-            clockOnScreen.setEmpty(); calendarOnScreen.setEmpty(); goalsOnScreen.setEmpty(); updOnScreen.setEmpty(); memOnScreen.setEmpty()
+            clockOnScreen.setEmpty(); calendarOnScreen.setEmpty(); goalsOnScreen.setEmpty(); updOnScreen.setEmpty(); memOnScreen.setEmpty(); mathBtns.forEach { it.setEmpty() }
             converterOnScreen.setEmpty(); padOnScreen.setEmpty(); steamRows.clear(); steamNextRect.setEmpty(); srvRects.clear()
             c.restore()
             return
@@ -265,6 +266,9 @@ class CyberRenderer {
         drawTicker(c, f)
         drawWeatherAndCalendar(c, f)
         if (cfg.steam) drawSteam(c, f) else { steamRows.clear(); steamNextRect.setEmpty() }
+        // «формула» — справа от игр, размером с погоду
+        val ml = if (cfg.steam) steamRight + 10f else 48f
+        if (cfg.math) drawMath(c, f, ml, 304f, ml + 268f, 466f) else mathBtns.forEach { it.setEmpty() }
         c.restore()
 
         c.restore()
@@ -874,6 +878,92 @@ class CyberRenderer {
      * обложки — монохром в цвет акцента, чтобы не спорить со стилем.
      */
     private val steamNextRect = RectF()
+    private var steamRight = 538f
+
+    // ================= «Формула»: плоскость z = f(x, y, t) =================
+
+    private val mathBtns = Array(MathPlane.FNS.size) { RectF() }
+    private var mathCur = -1; private var mathPrev = 0; private var mathAt = 0f
+    private val mathBufs = Array(MATH_NB) { FloatArray(MATH_N * (MATH_N + 1) * 2 * 4) }
+    private val mathCnt = IntArray(MATH_NB)
+    private val mx = FloatArray((MATH_N + 1) * (MATH_N + 1))
+    private val my = FloatArray((MATH_N + 1) * (MATH_N + 1))
+    private val md = FloatArray((MATH_N + 1) * (MATH_N + 1))
+
+    /**
+     * Слева — сетка-плоскость, медленно вращается, высота z = f(x, y, t); снизу — сама формула.
+     * Справа — 8 кнопок (2 × 4); смена формулы — перетекание за 0.8 с.
+     */
+    private fun drawMath(c: Canvas, f: FrameData, l: Float, t: Float, r: Float, b: Float) {
+        panel(c, l, t, r, b)
+        val fn = f.cfg.mathFn
+        if (mathCur < 0) { mathCur = fn; mathPrev = fn }
+        if (fn != mathCur) { mathPrev = mathCur; mathCur = fn; mathAt = f.t }
+        val mk = ((f.t - mathAt) / 0.8f).coerceIn(0f, 1f).let { it * it * (3f - 2f * it) }
+
+        // --- плоскость ---
+        val pl = l + 6f; val pt = t + 6f; val pr = l + 166f; val pb = b - 20f
+        val cx = (pl + pr) / 2f; val cy = (pt + pb) / 2f + 6f
+        val sc = (pr - pl) / 2.9f
+        val rot = f.t * 0.22f
+        val ca = cos(rot); val sa = sin(rot)
+        val el = 0.62f; val se = sin(el); val ce = cos(el)
+        val n = MATH_N
+        for (j in 0..n) for (i in 0..n) {
+            val x = -1f + 2f * i / n; val y = -1f + 2f * j / n
+            val z0 = MathPlane.z(mathPrev, x, y, f.t); val z1 = MathPlane.z(mathCur, x, y, f.t)
+            val z = (z0 + (z1 - z0) * mk).coerceIn(-1.4f, 1.4f)
+            val xr = x * ca - y * sa; val yr = x * sa + y * ca
+            val k = j * (n + 1) + i
+            mx[k] = cx + xr * sc
+            my[k] = cy + yr * sc * se - z * sc * ce * 0.55f
+            md[k] = (yr + 1.42f) / 2.84f          // 0 — дальний край, 1 — ближний
+        }
+        mathCnt.fill(0)
+        fun seg(a: Int, q: Int) {
+            val bb = min(MATH_NB - 1, (((md[a] + md[q]) * 0.5f) * MATH_NB).toInt().coerceAtLeast(0))
+            val buf = mathBufs[bb]; var m = mathCnt[bb]
+            buf[m++] = mx[a]; buf[m++] = my[a]; buf[m++] = mx[q]; buf[m++] = my[q]
+            mathCnt[bb] = m
+        }
+        for (j in 0..n) for (i in 0 until n) { seg(j * (n + 1) + i, j * (n + 1) + i + 1); seg(i * (n + 1) + j, (i + 1) * (n + 1) + j) }
+        c.save()
+        c.clipRect(pl, pt, pr, pb)
+        for (bb in 0 until MATH_NB) {
+            if (mathCnt[bb] == 0) continue
+            val a = 0.22f + 0.78f * (bb + 1f) / MATH_NB
+            line(withA(accent, 0.18f * a), 3.2f); c.drawLines(mathBufs[bb], 0, mathCnt[bb], stroke)
+            line(withA(accent, 0.9f * a), 1f); c.drawLines(mathBufs[bb], 0, mathCnt[bb], stroke)
+        }
+        c.restore()
+        // формула под плоскостью: моноширинный, в нём есть ², θ, ₁
+        text.typeface = Typeface.MONOSPACE; text.textSize = 8.5f; text.letterSpacing = 0f; text.color = label
+        val fs = MathPlane.FNS[fn].formula
+        val fw = text.measureText(fs)
+        c.save()
+        if (fw > pr - pl) c.scale((pr - pl) / fw, 1f, pl, b - 7f)
+        c.drawText(fs, pl, b - 7f, text)
+        c.restore()
+
+        // --- кнопки 2 × 4 ---
+        val bl = pr + 6f; val br = r - 6f; val bt = t + 6f; val bbm = b - 6f
+        val gap = 4f
+        val bw = (br - bl - gap) / 2f; val bh = (bbm - bt - gap * 3f) / 4f
+        val k = f.cfg.uiScale
+        for ((i, fnd) in MathPlane.FNS.withIndex()) {
+            val col = i % 2; val row = i / 2
+            val x0 = bl + col * (bw + gap); val y0 = bt + row * (bh + gap)
+            val on = i == fn
+            box(c, x0, y0, x0 + bw, y0 + bh, on)
+            text.typeface = labelFace; text.textSize = 8f; text.letterSpacing = 0.08f
+            text.color = if (on) accent else label
+            if (on) text.setShadowLayer(6f, 0f, 0f, withA(accent, 0.7f))
+            val tw = text.measureText(fnd.name)
+            c.drawText(fnd.name, x0 + (bw - tw) / 2f, y0 + bh / 2f + 3f, text)
+            text.clearShadowLayer(); text.letterSpacing = 0f
+            toScreen(mathBtns[i], x0 - 1f, y0 - 1f, x0 + bw + 1f, y0 + bh + 1f, k)
+        }
+    }
 
     private fun drawSteam(c: Canvas, f: FrameData) {
         // компактно: обложка · название · сигнал · онлайн · пик · цена
@@ -888,6 +978,7 @@ class CyberRenderer {
         val peakR = playersR + 74f           // пик за 24 ч
         val priceR = peakR + 62f             // цена, $
         val r = priceR + 10f
+        steamRight = r
         panel(c, l, t, r, b)
         // шапка: ⟳ (собрать список заново) · TRENDING
         text.typeface = labelFace; text.textSize = 10f; text.letterSpacing = 0.12f; text.color = accent
@@ -1343,6 +1434,8 @@ class CyberRenderer {
         private const val HZ = 519f
         private const val F = 600f
         private const val CAM = 0.5617f
+        private const val MATH_N = 16          // клеток сетки «формулы» по стороне
+        private const val MATH_NB = 5          // ступеней яркости по глубине
         private const val FOG_H = 90f
         private const val NUM_PUNCT = ".,:%°+−-/$"
 
