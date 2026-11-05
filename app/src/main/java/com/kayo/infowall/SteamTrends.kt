@@ -45,6 +45,9 @@ class TrendGame(
  */
 object SteamTrends {
 
+    /** appid → адрес картинки из поиска магазина (поиски идут параллельно). */
+    private val logos = java.util.concurrent.ConcurrentHashMap<Int, String>()
+
     const val ROWS = 15
     const val MAX = 80        // кандидатов на проверку перед отбором 15 (многие отсеются по дате выхода)
     private const val FRESH_DAYS = 90
@@ -163,7 +166,12 @@ object SteamTrends {
                 c.signal, c.kind, if (released) null else m?.optString("d")?.ifEmpty { "TBA" } ?: "TBA", null,
             )
         }.filterNotNull().take(ROWS)
-            .let { list -> pmap(list, 6) { g -> g.withImg(capsule(ctx, g.appid)) }.mapIndexed { i, g -> g ?: list[i] } }
+            .let { list ->
+                pmap(list, 6) { g ->
+                    val img = synchronized(meta) { meta.optJSONObject(g.appid.toString()) }?.optString("img").orEmpty()
+                    g.withImg(capsule(ctx, g.appid, listOf(img, logos[g.appid].orEmpty())))
+                }.mapIndexed { i, g -> g ?: list[i] }
+            }
         synchronized(meta) { synchronized(reviews) {
             p.edit().putString("meta", meta.toString()).putString("reviews", reviews.toString()).apply()
         } }
@@ -221,6 +229,7 @@ object SteamTrends {
         for (i in 0 until items.length()) {
             val o = items.optJSONObject(i) ?: continue
             val id = re.find(o.optString("logo"))?.groupValues?.get(1)?.toIntOrNull() ?: continue
+            logos[id] = o.optString("logo")      // точный адрес картинки (у новых игр в пути есть хэш)
             if (out.none { it.first == id }) out += id to o.optString("name")
         }
         out
@@ -232,7 +241,9 @@ object SteamTrends {
      */
     private fun details(meta: JSONObject, id: Int, cc: String): JSONObject? {
         val now = System.currentTimeMillis()
-        synchronized(meta) { meta.optJSONObject(id.toString()) }?.let { if (now - it.optLong("at") < DAY) return it }
+        // карточки без адреса обложки (старый кэш) — перезапросить
+        synchronized(meta) { meta.optJSONObject(id.toString()) }
+            ?.let { if (now - it.optLong("at") < DAY && it.optString("img").isNotEmpty()) return it }
         val o = runCatching {
             Thread.sleep(200)   // бережно к магазину
             JSONObject(get("$STORE/api/appdetails?appids=$id&cc=$cc&filters=basic,price_overview,release_date&l=english"))
@@ -247,7 +258,7 @@ object SteamTrends {
         }
         val m = JSONObject()
             .put("t", o.optString("type")).put("n", o.optString("name"))
-            .put("r", if (soon) -1L else parseDate(dateText)).put("cs", soon).put("d", shortDate(dateText))
+            .put("r", if (soon) -1L else parseDate(dateText)).put("cs", soon).put("img", o.optString("capsule_image")).put("d", shortDate(dateText))
             .put("price", price).put("at", now)
         synchronized(meta) { meta.put(id.toString(), m) }
         return m
@@ -301,11 +312,13 @@ object SteamTrends {
     private inline fun JSONArray.forEachObj(f: (JSONObject) -> Unit) { for (i in 0 until length()) optJSONObject(i)?.let(f) }
 
     /** Обложка 231×87: из кэша или скачать (два известных адреса CDN Steam). */
-    private fun capsule(ctx: Context, id: Int): Bitmap? {
+    private fun capsule(ctx: Context, id: Int, known: List<String>): Bitmap? {
         val dir = File(ctx.filesDir, "steam").apply { mkdirs() }
         val f = File(dir, "$id.jpg")
         if (!f.exists() || f.length() < 512) {
-            val urls = listOf(
+            // сначала точный адрес из карточки/поиска (у игр с 2024 г. в пути хэш — старые адреса дают 404),
+            // затем старые адреса без хэша
+            val urls = known.filter { it.startsWith("http") } + listOf(
                 "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/$id/capsule_231x87.jpg",
                 "https://cdn.akamai.steamstatic.com/steam/apps/$id/capsule_231x87.jpg",
             )
@@ -313,7 +326,7 @@ object SteamTrends {
                 val bytes = runCatching { getBytes(u, 300 * 1024) }.getOrNull() ?: continue
                 if (bytes.size > 512) { f.writeBytes(bytes); break }
             }
-        }
+        } else f.setLastModified(System.currentTimeMillis())   // в ходу — не вычищать
         // держим обложки только недавних игр (до 120 файлов)
         dir.listFiles()?.sortedBy { it.lastModified() }?.dropLast(120)?.forEach { it.delete() }
         return if (f.exists()) runCatching { BitmapFactory.decodeFile(f.path) }.getOrNull() else null
