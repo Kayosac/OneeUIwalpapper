@@ -51,7 +51,7 @@ object SteamTrends {
     const val ROWS = 15
     const val MAX = 80        // кандидатов на проверку перед отбором 15 (многие отсеются по дате выхода)
     private const val FRESH_DAYS = 90
-    private const val MAX_WISH = 6     // строк с сигналом WISH в списке
+    private const val MAX_WISH = 6     // строк WISH в списке, если игр с онлайном хватает на остальные
     private const val PREFS = "infowall_steam2"
     private const val API = "https://api.steampowered.com"
     private const val STORE = "https://store.steampowered.com"
@@ -149,7 +149,7 @@ object SteamTrends {
         // вишлистов в пуле сотни — берём их немного с запасом, а игр с онлайном — сколько влезет в MAX
         val sig = pool.values.filter { it.kind >= 0 }
         val top = (sig.filter { it.kind != TrendGame.K_WISH }.sortedByDescending { it.score }.take(MAX) +
-            sig.filter { it.kind == TrendGame.K_WISH }.sortedByDescending { it.score }.take(MAX_WISH + 6))
+            sig.filter { it.kind == TrendGame.K_WISH }.sortedByDescending { it.score }.take(ROWS + 3))
             .sortedByDescending { it.score }
         val out = pmap(top, 6) { c ->
             val m = details(meta, c.id, cc)
@@ -171,9 +171,12 @@ object SteamTrends {
                 c.signal, c.kind, if (released) null else m?.optString("d")?.ifEmpty { "TBA" } ?: "TBA", null,
             )
         }.filterNotNull().let { all ->
-            // вишлисты — не больше MAX_WISH строк, остальное место — играм с онлайном
+            // вишлисты — не больше MAX_WISH строк, остальное место — играм с онлайном;
+            // если таких игр не хватило до ROWS, свободные места добирают следующие вишлисты
             var w = 0
-            all.filter { it.kind != TrendGame.K_WISH || w++ < MAX_WISH }.take(ROWS)
+            val pick = all.filter { it.kind != TrendGame.K_WISH || w++ < MAX_WISH }.take(ROWS).toMutableSet()
+            all.filter { it !in pick }.filter { it.kind == TrendGame.K_WISH }.take(ROWS - pick.size).forEach { pick += it }
+            all.filter { it in pick }
         }
             .let { list ->
                 pmap(list, 6) { g ->
