@@ -64,7 +64,6 @@ open class InfoWallpaperService : WallpaperService() {
         private var serverViews: List<ServerView> = emptyList()
         private var nextNetAt = 0L
         private var nextSlowAt = 0L
-        private var lastTap = 0L
         private var fxEdit: FxEdit? = null      // идёт ввод суммы на обоях
         private var steam: List<TrendGame> = emptyList()
         private var steamNote: String? = null
@@ -112,6 +111,7 @@ open class InfoWallpaperService : WallpaperService() {
 
         override fun onVisibilityChanged(v: Boolean) {
             visible = v
+            pendAt = 0L                  // тап по приложению открыл его — недоделанный двойной тап забыть
             if (!v) closeFx(true)
             handler.removeCallbacks(frame)
             if (v) {
@@ -171,18 +171,44 @@ open class InfoWallpaperService : WallpaperService() {
         override fun onCommand(action: String?, x: Int, y: Int, z: Int, extras: Bundle?, resultRequested: Boolean): Bundle? {
             // запасной путь: лаунчеры, которые шлют COMMAND_TAP; если тот же тап уже поймали касанием — пропускаем
             if (!lockMode && action == WallpaperManager.COMMAND_TAP && SystemClock.elapsedRealtime() - lastTouchTapAt > 600) {
-                handleTap(x.toFloat(), y.toFloat())
+                onRawTap(x.toFloat(), y.toFloat())
             }
             return null
         }
 
         // ---------- касания: свой детектор тапа (One UI Home не присылает COMMAND_TAP) ----------
+        //
+        // Лаунчер отдаёт обоям ВСЕ касания — и те, что пришлись на иконки в меню приложений, папках,
+        // контекстных меню. Поэтому действия виджетов — только по ДВОЙНОМУ тапу: одиночный тап по
+        // приложению открывает его, обои становятся невидимыми, и второго тапа уже не будет.
+        // Одиночные тапы принимаются только клавиатурой суммы, пока она открыта.
 
         private var downX = 0f
         private var downY = 0f
         private var downAt = 0L
         private var downValid = false
         private var lastTouchTapAt = 0L
+        private var pendX = 0f
+        private var pendY = 0f
+        private var pendAt = 0L          // первый тап двойного; 0 — нет
+
+        /** Тап (касание или COMMAND_TAP): клавиатура суммы — сразу, остальное — только вторым тапом. */
+        private fun onRawTap(x: Float, y: Float) {
+            val now = SystemClock.elapsedRealtime()
+            val fx = fxEdit
+            if (fx != null && (renderer.padHit(x, y) != null || renderer.converterHit(x, y) != null)) {
+                pendAt = 0L
+                handleTap(x, y)
+                return
+            }
+            val near = 36f * resources.displayMetrics.density
+            if (pendAt != 0L && now - pendAt < 380 && kotlin.math.abs(x - pendX) < near && kotlin.math.abs(y - pendY) < near) {
+                pendAt = 0L
+                handleTap(pendX, pendY)
+            } else {
+                pendX = x; pendY = y; pendAt = now
+            }
+        }
 
         override fun onTouchEvent(e: android.view.MotionEvent) {
             if (lockMode) { super.onTouchEvent(e); return }
@@ -192,13 +218,18 @@ open class InfoWallpaperService : WallpaperService() {
                     downX = e.x; downY = e.y; downAt = SystemClock.elapsedRealtime(); downValid = true
                 }
                 android.view.MotionEvent.ACTION_MOVE ->
-                    if (downValid && (kotlin.math.abs(e.x - downX) > slop || kotlin.math.abs(e.y - downY) > slop)) downValid = false
+                    if (downValid && (kotlin.math.abs(e.x - downX) > slop || kotlin.math.abs(e.y - downY) > slop)) {
+                        downValid = false
+                        pendAt = 0L
+                        // свайп (меню приложений, листание экранов) — открытую клавиатуру закрыть с сохранением
+                        if (fxEdit != null) { closeFx(true); redraw() }
+                    }
                 android.view.MotionEvent.ACTION_POINTER_DOWN, android.view.MotionEvent.ACTION_CANCEL -> downValid = false
                 android.view.MotionEvent.ACTION_UP -> {
                     val quick = SystemClock.elapsedRealtime() - downAt < 450
                     if (downValid && quick) {
                         lastTouchTapAt = SystemClock.elapsedRealtime()
-                        handleTap(downX, downY)
+                        onRawTap(downX, downY)
                     }
                     downValid = false
                 }
@@ -253,10 +284,8 @@ open class InfoWallpaperService : WallpaperService() {
                         if (url != null) { openInChrome(url); return@run }
                     }
                 }
-                val now = SystemClock.elapsedRealtime()
-                if (now - lastTap < 400) {
-                    nextRemoteAt = 0L; nextWeatherAt = 0L; nextSrvAt = 0L; lastTap = 0L
-                } else lastTap = now
+                // двойной тап по пустому месту — обновить погоду и серверы
+                nextRemoteAt = 0L; nextWeatherAt = 0L; nextSrvAt = 0L
             }
             redraw()
         }
