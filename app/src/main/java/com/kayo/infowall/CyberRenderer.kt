@@ -85,11 +85,13 @@ class CyberRenderer {
     // зоны тапа «открыть приложение»: часы → Часы, календарь → Google Календарь
     private val clockOnScreen = RectF()
     private val calendarOnScreen = RectF()
+    private val goalsOnScreen = RectF()
 
-    /** "clock" / "calendar" под точкой тапа или null. */
+    /** "clock" / "calendar" / "goals" под точкой тапа или null. */
     fun appHit(x: Float, y: Float): String? = when {
         !clockOnScreen.isEmpty && clockOnScreen.contains(x, y) -> "clock"
         !calendarOnScreen.isEmpty && calendarOnScreen.contains(x, y) -> "calendar"
+        !goalsOnScreen.isEmpty && goalsOnScreen.contains(x, y) -> "goals"
         else -> null
     }
 
@@ -398,12 +400,12 @@ class CyberRenderer {
 
     private fun drawMetricsInner(c: Canvas, f: FrameData) {
         val st = f.stats
-        // узкие колонки справа от часов: [батарея + память] [сеть] [сервер 1] [сервер 2]
+        // колонки справа от часов: [батарея + память] [сеть] [сервер 1] [сервер 2] [цели]
         val x0 = 78f + 480f + 32f
         val x1 = uiR - 28f
         // все колонки одной ширины и делят панель целиком: 4 колонки по ~216 при двух серверах
         val nSrv = min(2, f.servers.size)
-        val cols = 2 + nSrv
+        val cols = 3 + nSrv
         val gap = 24f
         val cw = (x1 - x0 - gap * (cols - 1)) / cols
         val colW = cw; val netW = cw; val srvW = cw
@@ -458,6 +460,61 @@ class CyberRenderer {
             fill.color = withA(accent, 0.32f)
             c.drawRect(sx, 50f, sx + 1f, 198f, fill)
             drawServer(c, f.servers[i], sx + 16f, sx + srvW)
+        }
+
+        // --- цели: 6 колец «сколько дней осталось» ---
+        val gxs = bEnd + gap + nSrv * (srvW + gap)
+        fill.shader = null
+        fill.color = withA(accent, 0.32f)
+        c.drawRect(gxs, 50f, gxs + 1f, 198f, fill)
+        drawGoals(c, f.cfg.goals, gxs + 16f, gxs + cw)
+        toScreen(goalsOnScreen, gxs, 40f, gxs + cw + gap / 2f, 205f, f.cfg.uiScale)
+    }
+
+    private val today get() = java.time.LocalDate.now()
+
+    private fun drawGoals(c: Canvas, goals: List<Goal>, x: Float, end: Float) {
+        caption(c, "ЦЕЛИ", x, 68f)
+        val cellW = (end - x) / 3f
+        val r = 17f
+        val now = today
+        for (i in 0 until Goals.COUNT) {
+            val g = goals.getOrNull(i) ?: Goal("", null, null)
+            val cx = x + cellW * (i % 3 + 0.5f)
+            val cy = if (i < 3) 101f else 160f
+            stroke.strokeCap = Paint.Cap.ROUND
+            if (g.empty) {
+                line(withA(accent, 0.14f), 2f); c.drawCircle(cx, cy, r, stroke)
+                text.typeface = labelFace; text.textSize = 12f; text.letterSpacing = 0f; text.color = withA(label, 0.5f)
+                center(c, "+", cx, cy + 4.5f)
+                stroke.strokeCap = Paint.Cap.BUTT
+                continue
+            }
+            val left = g.daysLeft(now) ?: 0L
+            val p = g.progress(now)
+            val col = when { left < 0 -> withA(label, 0.6f); left <= 3 -> BAD_COLOR; else -> accent }
+            line(withA(accent, 0.14f), 3f); c.drawCircle(cx, cy, r, stroke)
+            rect.set(cx - r, cy - r, cx + r, cy + r)
+            line(withA(col, 0.3f), 6f); c.drawArc(rect, -90f, 360f * p, false, stroke)
+            line(col, 2.6f); c.drawArc(rect, -90f, 360f * p, false, stroke)
+            stroke.strokeCap = Paint.Cap.BUTT
+            // в центре — дни; прошла — галочка
+            if (left < 0) {
+                text.typeface = labelFace; text.textSize = 12f; text.color = col
+                center(c, "✓", cx, cy + 4.5f)
+            } else {
+                val v = if (left > 999) "999+" else left.toString()
+                text.typeface = numFace; text.letterSpacing = 0f
+                text.textSize = if (v.length <= 2) 13f else if (v.length == 3) 11f else 9f
+                text.color = if (left <= 3) BAD_COLOR else face
+                center(c, v, cx, cy + text.textSize * 0.36f)
+            }
+            // подпись под кольцом, обрезанная по ширине ячейки
+            text.typeface = labelFace; text.textSize = 9f; text.letterSpacing = 0.06f; text.color = label
+            var name = g.name.ifBlank { "ЦЕЛЬ ${i + 1}" }.uppercase()
+            while (name.length > 1 && measureMixed(name) > cellW - 6f) name = name.dropLast(1)
+            centerMixed(c, name, cx, cy + r + 13f)
+            text.letterSpacing = 0f
         }
     }
 

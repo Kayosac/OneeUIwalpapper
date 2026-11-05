@@ -180,6 +180,7 @@ class InfoWallpaperService : WallpaperService() {
                 when (renderer.appHit(tx, ty)) {
                     "clock" -> { openClock(); return null }
                     "calendar" -> { openCalendar(); return null }
+                    "goals" -> { launchFirst(android.content.Intent(applicationContext, GoalsActivity::class.java)); return null }
                 }
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastTap < 400) {

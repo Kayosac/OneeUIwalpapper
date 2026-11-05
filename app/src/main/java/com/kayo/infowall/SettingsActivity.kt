@@ -127,9 +127,14 @@ class SettingsActivity : Activity() {
         }
         col += newsRegion
 
+        // --- цели ---
+        col += header("Цели")
+        col += label("Шесть колец справа вверху: сколько дней осталось до каждой даты. Тап по блоку на обоях — то же окно.")
+        col += button("Задать цели") { startActivity(Intent(this, GoalsActivity::class.java)) }
+
         // --- открытие приложений ---
         col += header("Открытие приложений с обоев")
-        col += label("Тап по часам — «Часы», по календарю — Google Календарь. Android разрешает обоям открывать приложения только с разрешением «Поверх других приложений».")
+        col += label("Тап по часам — «Часы», по календарю — Google Календарь, по целям — окно целей. Android разрешает обоям открывать приложения только с разрешением «Поверх других приложений».")
         col += button("Выдать разрешение") {
             try {
                 startActivity(Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))

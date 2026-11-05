@@ -35,6 +35,15 @@
         <!-- Всплывающий конвертер: открывается тапом по блоку курсов на обоях
              или иконкой «Конвертер» в списке приложений -->
         <activity
+            android:name=".GoalsActivity"
+            android:exported="false"
+            android:label="Цели"
+            android:taskAffinity="com.kayo.infowall.goals"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.DeviceDefault.Wallpaper.NoTitleBar"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
             android:name=".ConverterActivity"
             android:exported="true"
             android:label="@string/converter_name"

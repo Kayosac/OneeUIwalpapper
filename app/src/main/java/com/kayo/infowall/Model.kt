@@ -49,6 +49,7 @@ data class Config(
     val lon: Double?,
     val city: String,
     val servers: List<ServerConf>,
+    val goals: List<Goal>,
 )
 
 object Prefs {
@@ -121,6 +122,7 @@ object Prefs {
             lon = lon,
             city = p.getString(K_CITY, "").orEmpty(),
             servers = Servers.parse(p.getString(K_SERVERS, "").orEmpty()),
+            goals = Goals.parse(p.getString(Goals.PREF_KEY, null)),
         )
     }
 
