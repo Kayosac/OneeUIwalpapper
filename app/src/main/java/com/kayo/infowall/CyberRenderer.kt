@@ -453,10 +453,12 @@ class CyberRenderer {
         // узкие колонки справа от часов: [батарея + память] [сеть] [сервер 1] [сервер 2]
         val x0 = 78f + 480f + 32f
         val x1 = uiR - 28f
-        // ширины колонок постоянные, лишнее место — поровну в промежутки
-        val colW = 212f; val netW = 176f; val srvW = 172f
+        // все колонки одной ширины и делят панель целиком: 4 колонки по ~216 при двух серверах
         val nSrv = min(2, f.servers.size)
-        val gap = ((x1 - x0 - colW - netW - nSrv * srvW) / (1 + nSrv)).coerceIn(24f, 72f)
+        val cols = 2 + nSrv
+        val gap = 24f
+        val cw = min(260f, (x1 - x0 - gap * (cols - 1)) / cols)
+        val colW = cw; val netW = cw; val srvW = cw
         val xB = x0 + colW + gap
         fill.shader = null
         fill.color = withA(accent, 0.32f)
@@ -523,6 +525,13 @@ class CyberRenderer {
         text.color = if (off) BAD_COLOR else label
         drawMixed(c, s.name.uppercase(), x + 12f, 68f)
         text.letterSpacing = 0f
+        // аптайм справа от названия
+        val up = s.metrics?.uptimeSec ?: 0L
+        if (!off && up > 0) {
+            val u = if (up >= 86_400) "${up / 86_400}д ${up % 86_400 / 3600}ч" else "${up / 3600}ч ${up % 3600 / 60}м"
+            text.textSize = 10f; text.color = label
+            drawMixed(c, u, end - measureMixed(u), 68f)
+        }
 
         text.typeface = numFace; text.textSize = 11f; text.color = if (off) withA(label, 0.6f) else face
         c.drawText(s.ip, x, 86f, text)
@@ -537,7 +546,7 @@ class CyberRenderer {
             c.drawText(labels[k], x, base, text)
             text.letterSpacing = 0f
             val hist = when (k) { 0 -> m?.cpuHist; 1 -> m?.ramHist; else -> m?.diskHist }
-            spark(c, hist, x + 32f, top, 56f, 22f, off)
+            spark(c, hist, x + 32f, top, end - x - 32f - 72f, 22f, off)
             if (off && k == 0) {
                 text.typeface = labelFace; text.textSize = 10f; text.letterSpacing = 0.12f; text.color = BAD_COLOR
                 c.drawText("OFFLINE", end - text.measureText("OFFLINE"), base, text)
