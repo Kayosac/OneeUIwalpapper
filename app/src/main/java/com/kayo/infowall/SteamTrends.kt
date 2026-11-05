@@ -42,8 +42,9 @@ object SteamTrends {
     /** [cc] — страна магазина для цен (us — доллары). */
     @Throws(IOException::class)
     fun fetch(ctx: Context, cc: String = "us"): List<TrendGame> {
-        // подборка — официальные «Лидеры продаж» магазина Steam (как вкладка Top Sellers в магазине)
-        val list = JSONObject(get("https://store.steampowered.com/search/results/?json=1&filter=topsellers&count=40&cc=$cc&l=english"))
+        // подборка — «Популярные новинки» магазина Steam (filter=popularnew); Steam подмешивает туда и старые
+        // хиты (Counter-Strike 2, Dota 2…), поэтому ниже оставляем только вышедшие за последние NEW_DAYS дней
+        val list = JSONObject(get("https://store.steampowered.com/search/results/?json=1&filter=popularnew&count=100&cc=$cc&l=english"))
             .optJSONArray("items") ?: throw IOException("Steam: пустой ответ")
         val idRe = Regex("/apps/(\\d+)/")
         val sellers = ArrayList<Pair<Int, String>>()
@@ -71,11 +72,13 @@ object SteamTrends {
         val out = ArrayList<TrendGame>()
         for ((id, listName) in sellers) {
             if (out.size >= ROWS) break
-            // в лидерах продаж бывают железо (Steam Deck), DLC и программы — оставляем только игры
-            val info = runCatching { details(id, cc) }.getOrNull()
-            val type = info?.type ?: types.optString(id.toString())
-            if (type.isNotEmpty()) types.put(id.toString(), type)
-            if (type.isNotEmpty() && type != "game") continue
+            // тип и дата выхода кэшируются (не меняются): старые игры и не-игры отсеиваем без лишних запросов
+            val meta = types.optJSONObject(id.toString())
+            // «скоро выйдет» (r = -1) не кэшируем как отказ — дата появится после релиза
+            if (meta != null && (meta.optString("t") != "game" || (meta.optLong("r", -1L) > 0 && !isNew(meta.optLong("r"), now)))) continue
+            val info = runCatching { details(id, cc) }.getOrNull() ?: continue
+            types.put(id.toString(), JSONObject().put("t", info.type).put("r", info.released))
+            if (info.type != "game" || !isNew(info.released, now)) continue
             val name = listName.ifBlank { names.optString(id.toString()).ifEmpty { "App $id" } }
             names.put(id.toString(), name)
             val players = live[id] ?: runCatching { currentPlayers(id) }.getOrDefault(0)
@@ -97,23 +100,41 @@ object SteamTrends {
                 if (now - pt.optLong(0) < 24 * 3600_000L) ownPeak = max(ownPeak, pt.optInt(1))
             }
             val peak = max(livePeak[id] ?: ownPeak, players)
-            out += TrendGame(id, name, players, peak, null, info?.price, info?.discount ?: 0, series, capsule(ctx, id))
+            out += TrendGame(id, name, players, peak, null, info.price, info.discount, series, capsule(ctx, id))
         }
         p.edit().putString(K_NAMES, names.toString()).putString(K_HIST, hist.toString()).putString(K_TYPES, types.toString()).apply()
-        if (out.isEmpty()) throw IOException("Steam: пустая подборка")
+        if (out.isEmpty()) throw IOException("Steam: нет новинок в подборке")
         return out
     }
 
-    private class Details(val type: String, val price: String?, val discount: Int)
+    /** Новинка — вышла (не «скоро») не раньше NEW_DAYS дней назад; дата неизвестна (-1) — не новинка. */
+    private fun isNew(released: Long, now: Long) = released > 0 && released <= now && now - released < NEW_DAYS * 86_400_000L
 
-    /** Тип (game / dlc / hardware…) и цена в магазине страны [cc]. */
+    private const val NEW_DAYS = 60
+
+    private class Details(val type: String, val price: String?, val discount: Int, val released: Long)
+
+    /** Тип (game / dlc / hardware…), дата выхода (мс, -1 — «скоро»/неизвестно) и цена в магазине страны [cc]. */
     private fun details(id: Int, cc: String): Details? {
-        val o = JSONObject(get("https://store.steampowered.com/api/appdetails?appids=$id&cc=$cc&filters=basic,price_overview&l=english"))
+        val o = JSONObject(get("https://store.steampowered.com/api/appdetails?appids=$id&cc=$cc&filters=basic,price_overview,release_date&l=english"))
             .optJSONObject(id.toString())?.optJSONObject("data") ?: return null
         val type = o.optString("type")
-        if (o.optBoolean("is_free")) return Details(type, "Free", 0)
-        val p = o.optJSONObject("price_overview") ?: return Details(type, null, 0)
-        return Details(type, p.optString("final_formatted").trim(), p.optInt("discount_percent"))
+        val rd = o.optJSONObject("release_date")
+        val released = if (rd == null || rd.optBoolean("coming_soon")) -1L else parseDate(rd.optString("date"))
+        if (o.optBoolean("is_free")) return Details(type, "Free", 0, released)
+        val p = o.optJSONObject("price_overview") ?: return Details(type, null, 0, released)
+        return Details(type, p.optString("final_formatted").trim(), p.optInt("discount_percent"), released)
+    }
+
+    /** «Oct 28, 2026» или «28 Oct, 2026» → мс; не распознали — -1. */
+    private fun parseDate(s: String): Long {
+        for (pat in listOf("MMM d, yyyy", "d MMM, yyyy", "MMM yyyy")) {
+            val d = runCatching {
+                java.time.LocalDate.parse(s.trim(), java.time.format.DateTimeFormatter.ofPattern(pat, java.util.Locale.ENGLISH))
+            }.getOrNull() ?: continue
+            return d.atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
+        }
+        return -1L
     }
 
     private fun appName(id: Int): String? {

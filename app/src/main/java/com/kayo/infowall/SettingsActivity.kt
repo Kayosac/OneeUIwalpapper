@@ -128,9 +128,9 @@ class SettingsActivity : Activity() {
         col += newsRegion
 
         // --- Steam ---
-        col += header("Steam: лидеры продаж")
-        col += switch("Виджет слева: 15 игр из «Лидеров продаж» магазина Steam", cfg.steam) { v -> put { putBoolean(Prefs.K_STEAM, v) } }
-        col += label("Официальная подборка Steam (только игры, без железа и DLC). График «7 дней» копится сам, пока работают обои. Тап по игре — её страница в Chrome.")
+        col += header("Steam: популярные новинки")
+        col += switch("Виджет слева: 15 игр из «Популярных новинок» магазина Steam", cfg.steam) { v -> put { putBoolean(Prefs.K_STEAM, v) } }
+        col += label("Официальная подборка Steam, только игры, вышедшие за последние 60 дней (Steam подмешивает туда старые хиты — их убираем). График «7 дней» копится сам, пока работают обои. Тап по игре — её страница в Chrome.")
 
         // --- цели ---
         col += header("Цели")

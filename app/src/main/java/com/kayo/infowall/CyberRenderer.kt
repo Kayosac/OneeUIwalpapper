@@ -847,7 +847,7 @@ class CyberRenderer {
         panel(c, l, t, r, b)
         // шапка
         text.typeface = labelFace; text.textSize = 10f; text.letterSpacing = 0.12f; text.color = accent
-        c.drawText("TOP SELLERS", nameX, t + 20f, text)
+        c.drawText("POPULAR RELEASES", nameX, t + 20f, text)
         text.textSize = 8f; text.letterSpacing = 0.06f; text.color = label
         center(c, "LAST 7 DAYS", (sparkL + sparkR) / 2f, t + 20f)
         for ((h, x) in listOf("NOW" to playersR, "24H PEAK" to peakR, "PRICE" to priceR))
