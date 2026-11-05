@@ -9,9 +9,17 @@ import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import kotlin.math.max
 
-/** Строка виджета: игра, онлайн сейчас, история онлайна за 7 дней (наша, копится сама), обложка. */
-class TrendGame(val appid: Int, val name: String, val players: Int, val hist: FloatArray, val img: Bitmap?)
+/**
+ * Строка виджета: игра, онлайн сейчас, пик за 24 ч, рейтинг (формула SteamDB), цена,
+ * история онлайна за 7 дней (наша, копится сама), обложка.
+ */
+class TrendGame(
+    val appid: Int, val name: String, val players: Int, val peak24: Int,
+    val rating: Float?, val price: String?, val discount: Int,
+    val hist: FloatArray, val img: Bitmap?,
+)
 
 /**
  * «Trending Games» в духе SteamDB, но на официальном открытом API Steam
@@ -31,15 +39,20 @@ object SteamTrends {
     private const val WEEK_MS = 7 * 24 * 3600_000L
     private const val API = "https://api.steampowered.com/ISteamChartsService"
 
+    /** [cc] — страна магазина для цен (kz — тенге). */
     @Throws(IOException::class)
-    fun fetch(ctx: Context): List<TrendGame> {
+    fun fetch(ctx: Context, cc: String = "kz"): List<TrendGame> {
         val most = JSONObject(get("$API/GetMostPlayedGames/v1/")).optJSONObject("response")?.optJSONArray("ranks")
             ?: throw IOException("Steam: пустой ответ")
         val live = HashMap<Int, Int>()
+        val livePeak = HashMap<Int, Int>()
         runCatching {
             JSONObject(get("$API/GetGamesByConcurrentPlayers/v1/")).optJSONObject("response")?.optJSONArray("ranks")
         }.getOrNull()?.let { arr ->
-            for (i in 0 until arr.length()) arr.optJSONObject(i)?.let { live[it.optInt("appid")] = it.optInt("concurrent_in_game") }
+            for (i in 0 until arr.length()) arr.optJSONObject(i)?.let {
+                live[it.optInt("appid")] = it.optInt("concurrent_in_game")
+                livePeak[it.optInt("appid")] = it.optInt("peak_in_game")
+            }
         }
 
         // рост в чарте за неделю
@@ -76,7 +89,11 @@ object SteamTrends {
             if (now - lastTs > 50 * 60_000L) kept.put(JSONArray().put(now).put(players))
             hist.put(id.toString(), kept)
             val series = FloatArray(kept.length()) { kept.optJSONArray(it).optDouble(1).toFloat() }
-            out += TrendGame(id, name, players, series, capsule(ctx, id))
+            // пик за 24 ч: из чарта онлайна; если игры там нет — суточный пик из чарта «самых популярных»
+            val peak = max(livePeak[id] ?: c.peak, players)
+            val rating = runCatching { rating(id) }.getOrNull()
+            val pr = runCatching { price(id, cc) }.getOrNull()
+            out += TrendGame(id, name, players, peak, rating, pr?.first, pr?.second ?: 0, series, capsule(ctx, id))
         }
         p.edit().putString(K_NAMES, names.toString()).putString(K_HIST, hist.toString()).apply()
         return out
@@ -85,6 +102,29 @@ object SteamTrends {
     private fun appName(id: Int): String? {
         val o = JSONObject(get("https://store.steampowered.com/api/appdetails?appids=$id&filters=basic&l=english"))
         return o.optJSONObject(id.toString())?.optJSONObject("data")?.optString("name")?.takeIf { it.isNotBlank() }
+    }
+
+    /**
+     * Рейтинг как у SteamDB: доля положительных обзоров, подтянутая к 50 % тем сильнее,
+     * чем меньше обзоров: score − (score − 0.5) · 2^(−log10(total + 1)).
+     */
+    private fun rating(id: Int): Float? {
+        val q = JSONObject(get("https://store.steampowered.com/appreviews/$id?json=1&language=all&purchase_type=all&num_per_page=0"))
+            .optJSONObject("query_summary") ?: return null
+        val pos = q.optInt("total_positive"); val total = q.optInt("total_reviews")
+        if (total <= 0) return null
+        val score = pos.toDouble() / total
+        val r = score - (score - 0.5) * Math.pow(2.0, -Math.log10(total + 1.0))
+        return (r * 100).toFloat()
+    }
+
+    /** Цена в магазине страны [cc]: «1 299₸» и скидка в процентах; бесплатные — «Free». */
+    private fun price(id: Int, cc: String): Pair<String, Int>? {
+        val o = JSONObject(get("https://store.steampowered.com/api/appdetails?appids=$id&cc=$cc&filters=price_overview,basic&l=english"))
+            .optJSONObject(id.toString())?.optJSONObject("data") ?: return null
+        if (o.optBoolean("is_free")) return "Free" to 0
+        val p = o.optJSONObject("price_overview") ?: return null
+        return p.optString("final_formatted").trim() to p.optInt("discount_percent")
     }
 
     private fun currentPlayers(id: Int): Int =

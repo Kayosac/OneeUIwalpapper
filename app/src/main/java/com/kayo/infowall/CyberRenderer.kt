@@ -811,16 +811,20 @@ class CyberRenderer {
         val b = t + headH + max(1, rows.size) * (rowH + gap) + 6f
         val imgW = 58f; val imgH = imgW * 87f / 231f
         val nameX = l + 8f + imgW + 10f
-        val sparkL = nameX + 200f; val sparkR = sparkL + 100f
-        val playersR = sparkR + 92f
-        val r = playersR + 10f
+        val sparkL = nameX + 170f; val sparkR = sparkL + 90f
+        val playersR = sparkR + 78f          // онлайн сейчас
+        val peakR = playersR + 76f           // пик за 24 ч
+        val ratingR = peakR + 58f            // рейтинг
+        val priceR = ratingR + 84f           // цена
+        val r = priceR + 10f
         panel(c, l, t, r, b)
         // шапка
         text.typeface = labelFace; text.textSize = 11f; text.letterSpacing = 0.18f; text.color = accent
         c.drawText("TRENDING GAMES", nameX, t + 20f, text)
         text.textSize = 9f; text.letterSpacing = 0.12f; text.color = label
         center(c, "LAST 7 DAYS", (sparkL + sparkR) / 2f, t + 20f)
-        c.drawText("PLAYERS NOW", playersR - text.measureText("PLAYERS NOW"), t + 20f, text)
+        for ((h, x) in listOf("NOW" to playersR, "24H PEAK" to peakR, "RATING" to ratingR, "PRICE" to priceR))
+            c.drawText(h, x - text.measureText(h), t + 20f, text)
         text.letterSpacing = 0f
         fill.shader = null; fill.color = withA(accent, 0.32f)
         c.drawRect(l + 8f, t + headH - 2f, r - 8f, t + headH - 1f, fill)
@@ -829,10 +833,12 @@ class CyberRenderer {
             capKey = accent
             // монохром: яркость пикселя → оттенок акцента
             val ar = Color.red(accent) / 255f; val ag = Color.green(accent) / 255f; val ab = Color.blue(accent) / 255f
+            // яркость L (0..1) → L' = (L − 0.06)·1.2, цвет = L'·акцент: чёрное остаётся чёрным, светлое — чистым акцентом
+            val g = 1.2f; val o = -0.06f * 255f * g
             val m = android.graphics.ColorMatrix(floatArrayOf(
-                0.299f * ar * 1.25f, 0.587f * ar * 1.25f, 0.114f * ar * 1.25f, 0f, 0f,
-                0.299f * ag * 1.25f, 0.587f * ag * 1.25f, 0.114f * ag * 1.25f, 0f, 0f,
-                0.299f * ab * 1.25f, 0.587f * ab * 1.25f, 0.114f * ab * 1.25f, 0f, 0f,
+                0.299f * ar * g, 0.587f * ar * g, 0.114f * ar * g, 0f, o * ar,
+                0.299f * ag * g, 0.587f * ag * g, 0.114f * ag * g, 0f, o * ag,
+                0.299f * ab * g, 0.587f * ab * g, 0.114f * ab * g, 0f, o * ab,
                 0f, 0f, 0f, 1f, 0f,
             ))
             capPaint.colorFilter = android.graphics.ColorMatrixColorFilter(m)
@@ -873,6 +879,31 @@ class CyberRenderer {
             text.setShadowLayer(6f, 0f, 0f, withA(accent, 0.6f))
             c.drawText(v, playersR - text.measureText(v), y + rowH / 2f + 4f, text)
             text.clearShadowLayer()
+            val base = y + rowH / 2f + 4f
+            // пик за 24 ч
+            val pk = String.format(java.util.Locale.US, "%,d", g.peak24)
+            text.textSize = 11f; text.color = face
+            c.drawText(pk, peakR - text.measureText(pk), base, text)
+            // рейтинг: как у SteamDB, цветом — высокий/средний/низкий
+            val rt = g.rating
+            if (rt != null) {
+                val rs = String.format(java.util.Locale.US, "%.1f%%", rt)
+                text.color = when { rt >= 80f -> accent; rt >= 60f -> label; else -> BAD_COLOR }
+                c.drawText(rs, ratingR - text.measureText(rs), base, text)
+            }
+            // цена; со скидкой — процент скидки перед ценой
+            val pr = g.price
+            if (pr != null) {
+                text.color = if (g.discount > 0) accent else face
+                text.textSize = 10f
+                val pw = measureMixed(pr)
+                drawMixed(c, pr, priceR - pw, base)
+                if (g.discount > 0) {
+                    val d = "−${g.discount}%"
+                    text.typeface = numFace; text.color = BAD_COLOR
+                    c.drawText(d, priceR - pw - 6f - text.measureText(d), base, text)
+                }
+            }
             steamRows += RectF(screenOx + l * k, y * k, screenOx + r * k, (y + rowH) * k)
             steamIds += g.appid
         }
