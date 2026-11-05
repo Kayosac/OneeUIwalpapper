@@ -132,14 +132,17 @@ class InfoWallpaperService : WallpaperService() {
                 weather = null; weatherNote = null
             }
             if (old.newsRegion != cfg.newsRegion) news = emptyList()
+            // сеть дёргаем только если поменялось то, от чего зависят данные (ползунки в настройках шлют много изменений)
+            val wxChanged = old.lat != cfg.lat || old.lon != cfg.lon || old.weather != cfg.weather
+            val newsChanged = old.newsRegion != cfg.newsRegion || old.news != cfg.news
             if (old.servers != cfg.servers) {
                 srvState.keys.retainAll(cfg.servers.map { it.url }.toSet())
                 nextSrvAt = 0L
                 rebuildServerViews()
             }
-            nextRemoteAt = 0L
-            nextWeatherAt = 0L
-            nextNewsAt = 0L
+            if (old.url != cfg.url) nextRemoteAt = 0L
+            if (wxChanged) nextWeatherAt = 0L
+            if (newsChanged) nextNewsAt = 0L
             renderer.invalidateTime()
             loadFonts()
             if (visible) {

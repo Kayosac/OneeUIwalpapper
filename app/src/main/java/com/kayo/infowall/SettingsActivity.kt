@@ -27,17 +27,11 @@ import android.widget.Toast
 import java.util.Locale
 
 /**
- * Настройки. Всё управление — кнопками: ни одно действие не требует Enter
- * на экранной клавиатуре.
+ * Настройки поверх живых обоев: панель снизу, обои видны сверху.
+ * Каждое изменение сразу пишется в настройки — обои перерисовываются на лету, кнопки «Сохранить» нет.
  */
 class SettingsActivity : Activity() {
 
-    private var accentColor = 0
-    private lateinit var fps: EditText
-    private lateinit var glow: EditText
-    private lateinit var shadeSolid: EditText
-    private lateinit var shadeFade: EditText
-    private lateinit var yaw: EditText
     private lateinit var zones: EditText
     private lateinit var swWeather: Switch
     private lateinit var placeStatus: TextView
@@ -57,44 +51,50 @@ class SettingsActivity : Activity() {
         val col = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             val pad = dp(20)
-            setPadding(pad, pad, pad, pad)
+            setPadding(pad, dp(8), pad, pad)
         }
+        col += label("Обои видны сверху — всё меняется на них сразу.")
 
         // --- вид ---
         col += header("Вид")
-        col += label("Цвет — меняется на обоях сразу")
-        accentColor = cfg.accent
-        col += ColorPalette(this, cfg.accent) { c ->
-            accentColor = c
-            Prefs.get(this).edit().putString(Prefs.K_ACCENT, ColorPalette.hex(c)).apply()
+        col += label("Цвет")
+        col += ColorPalette(this, cfg.accent) { c -> put { putString(Prefs.K_ACCENT, ColorPalette.hex(c)) } }
+        col += slider("Свечение (bloom)", 0f, 2f, 0.05f, cfg.glow, { if (it == 0f) "выкл" else String.format(Locale.US, "%.2f", it) }) { v ->
+            put { putFloat(Prefs.K_GLOW, v) }
         }
-        col += label("Кадров в секунду: 0 — без анимации (экономия), 10–30 — плавно")
-        fps = field("20", cfg.fps.toString(), InputType.TYPE_CLASS_NUMBER); col += fps
-        col += label("Свечение (bloom): 0 — выкл, 1 — норма, до 2 — сильнее")
-        glow = field("1", trim(cfg.glow), InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL); col += glow
-        col += label("Чёрный низ под доком, % высоты экрана (подгони под свой док)")
-        shadeSolid = field("9.3", trim(cfg.shadeSolid * 100f), InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL); col += shadeSolid
-        col += label("Переход из чёрного в прозрачность над доком, % высоты")
-        shadeFade = field("11.2", trim(cfg.shadeFade * 100f), InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL); col += shadeFade
-        col += label("Поворот камеры, ° (0–34)")
-        yaw = field("24", cfg.yawDeg.toInt().toString(), InputType.TYPE_CLASS_NUMBER); col += yaw
+        col += slider("Чёрный низ под доком", 0f, 30f, 0.1f, cfg.shadeSolid * 100f, { String.format(Locale.US, "%.1f %%", it) }) { v ->
+            put { putFloat(Prefs.K_SHADE_SOLID, v / 100f) }
+        }
+        col += slider("Переход в прозрачность над доком", 2f, 40f, 0.1f, cfg.shadeFade * 100f, { String.format(Locale.US, "%.1f %%", it) }) { v ->
+            put { putFloat(Prefs.K_SHADE_FADE, v / 100f) }
+        }
+        col += slider("Поворот камеры", 0f, 34f, 1f, cfg.yawDeg, { "${it.toInt()}°" }) { v ->
+            put { putFloat(Prefs.K_YAW, v) }
+        }
+        col += slider("Кадров в секунду", 0f, 30f, 1f, cfg.fps.toFloat(), { if (it == 0f) "без анимации" else "${it.toInt()}" }) { v ->
+            put { putInt(Prefs.K_FPS, v.toInt()) }
+        }
 
         // --- часы ---
         col += header("Часовые пояса")
         col += label("До трёх через запятую: метка=пояс (метки латиницей — так их рисует шрифт цифр)")
         zones = field(Prefs.DEFAULT_ZONES, p.getString(Prefs.K_ZONES, Prefs.DEFAULT_ZONES).orEmpty(), InputType.TYPE_CLASS_TEXT)
+        onText(zones) { t ->
+            if (t.isBlank() || Prefs.parseZones(t).isNotEmpty()) { put { putString(Prefs.K_ZONES, t.trim()) }; null }
+            else "Пример: MOS=Europe/Moscow"
+        }
         col += zones
 
         // --- погода ---
         col += header("Погода")
-        swWeather = switch("Показывать прогноз на неделю", cfg.weather); col += swWeather
+        swWeather = switch("Показывать прогноз на неделю", cfg.weather) { v -> put { putBoolean(Prefs.K_WEATHER, v) } }; col += swWeather
         col += button("Определить местоположение") { locate() }
         placeStatus = status(placeText(cfg)); col += placeStatus
 
 
         // --- курсы ---
         col += header("Курсы валют")
-        swConverter = switch("Конвертер на экране (тап по строке — клавиатура прямо на обоях)", cfg.converter); col += swConverter
+        swConverter = switch("Конвертер на экране (тап по строке — клавиатура прямо на обоях)", cfg.converter) { v -> put { putBoolean(Prefs.K_CONVERTER, v) } }; col += swConverter
         col += label("До ${RatesSource.MAX_CODES} валют. Тап по валюте — заменить, стрелки — порядок. Меняется на обоях сразу.")
         curCodes += RatesSource.parseCodes(cfg.currencies)
         curList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -104,9 +104,13 @@ class SettingsActivity : Activity() {
 
         // --- новости ---
         col += header("Бегущая строка")
-        swNews = switch("Новости Google на русском", cfg.news); col += swNews
+        swNews = switch("Новости Google на русском", cfg.news) { v -> put { putBoolean(Prefs.K_NEWS, v) } }; col += swNews
         col += label("Регион подборки: RU, KZ, BY, UA… (две буквы)")
         newsRegion = field("RU", cfg.newsRegion, InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS)
+        onText(newsRegion) { t ->
+            val r = t.trim().uppercase().filter { it.isLetter() }
+            if (r.length == 2) { put { putString(Prefs.K_NEWS_REGION, r) }; null } else if (r.isEmpty()) null else "Две буквы, например KZ"
+        }
         col += newsRegion
 
         // --- открытие приложений ---
@@ -128,48 +132,68 @@ class SettingsActivity : Activity() {
             InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS).apply {
             isSingleLine = false; minLines = 2; maxLines = 4
         }
+        onText(servers) { t ->
+            val lines = t.lines().map { it.trim() }.filter { it.isNotEmpty() }
+            val bad = lines.firstOrNull { Servers.parseLine(it) == null }
+            if (bad == null) { put { putString(Prefs.K_SERVERS, lines.joinToString("\n")) }; null }
+            else "Не распознана строка: ${bad.take(24)}… — нужна целиком iwa1|…"
+        }
         col += servers
 
         col += space(dp(16))
-        col += button("Сохранить") { if (save()) toast("Сохранено") }
-        col += button("Сохранить и установить обои") { if (save()) setWallpaper() }
+        col += button("Установить InfoWall на рабочий стол") { setWallpaper() }
         col += label("Двойной тап по пустому месту рабочего стола — обновить погоду и серверы.")
 
-        setContentView(ScrollView(this).apply { isFillViewport = true; addView(col) })
-    }
-
-    // ---------- сохранение ----------
-
-    private fun save(): Boolean {
-        val color = ColorPalette.hex(accentColor)
-        val srvLines = servers.text.toString().lines().map { it.trim() }.filter { it.isNotEmpty() }
-        val badSrv = srvLines.filter { Servers.parseLine(it) == null }
-        if (badSrv.isNotEmpty()) {
-            servers.error = "Не распознана строка: ${badSrv.first().take(24)}… — нужна целиком iwa1|…"
-            servers.requestFocus()
-            return false
+        // живые обои за окном настроек; панель — нижние ~55 % экрана, верх (часы, плашки, погода) остаётся виден
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
+        val panelH = (resources.displayMetrics.heightPixels * 0.56f).toInt()
+        val scroll = ScrollView(this).apply {
+            setBackgroundColor(android.graphics.Color.argb(236, 6, 10, 14))
+            addView(col)
         }
-        hideKeyboard()
-        Prefs.get(this).edit()
-            .putString(Prefs.K_SERVERS, srvLines.joinToString("\n"))
-            .putString(Prefs.K_ACCENT, color)
-            .putInt(Prefs.K_FPS, (fps.text.toString().toIntOrNull() ?: 20).coerceIn(0, 30))
-            .putFloat(Prefs.K_SHADE_SOLID, ((shadeSolid.text.toString().replace(',', '.').toFloatOrNull() ?: 9.3f) / 100f).coerceIn(0f, 0.4f))
-            .putFloat(Prefs.K_SHADE_FADE, ((shadeFade.text.toString().replace(',', '.').toFloatOrNull() ?: 11.2f) / 100f).coerceIn(0.02f, 0.5f))
-            .putFloat(Prefs.K_GLOW, (glow.text.toString().replace(',', '.').toFloatOrNull() ?: 1f).coerceIn(0f, 2f))
-            .putFloat(Prefs.K_YAW, (yaw.text.toString().toFloatOrNull() ?: 24f).coerceIn(0f, 34f))
-            .putString(Prefs.K_ZONES, zones.text.toString().trim())
-            .putBoolean(Prefs.K_WEATHER, swWeather.isChecked)
-            .putBoolean(Prefs.K_CONVERTER, swConverter.isChecked)
-            .putBoolean(Prefs.K_NEWS, swNews.isChecked)
-            .putString(Prefs.K_NEWS_REGION, newsRegion.text.toString().trim().uppercase().filter { it.isLetter() }.take(2).ifEmpty { "RU" })
-            .putString(Prefs.K_URL, "")      // внешний источник для бегущей строки убран
-            .putString(Prefs.K_TOKEN, "")
-            .apply()
-        val badZones = zones.text.toString().isNotBlank() && Prefs.parseZones(zones.text.toString()).isEmpty()
-        if (badZones) toast("Пояса не распознаны — пример: МСК=Europe/Moscow")
-        return true
+        val root = android.widget.FrameLayout(this).apply {
+            addView(scroll, android.widget.FrameLayout.LayoutParams(android.widget.FrameLayout.LayoutParams.MATCH_PARENT, panelH, Gravity.BOTTOM))
+        }
+        setContentView(root)
     }
+
+    /** Записать изменение сразу — обои слушают настройки и перерисовываются. */
+    private inline fun put(block: android.content.SharedPreferences.Editor.() -> Unit) {
+        Prefs.get(this).edit().apply(block).apply()
+    }
+
+    /** Поле с проверкой на лету: validate возвращает текст ошибки или null (значение уже записано). */
+    private fun onText(f: EditText, validate: (String) -> String?) {
+        f.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun afterTextChanged(e: android.text.Editable?) { f.error = validate(e?.toString().orEmpty()) }
+        })
+    }
+
+    private fun slider(title: String, min: Float, max: Float, step: Float, value: Float, fmt: (Float) -> String, onChange: (Float) -> Unit): View {
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, dp(10), 0, 0) }
+        val cap = TextView(this).apply { alpha = 0.85f }
+        val steps = Math.round((max - min) / step)
+        val bar = android.widget.SeekBar(this).apply {
+            this.max = steps
+            progress = Math.round((value.coerceIn(min, max) - min) / step)
+        }
+        fun v(p: Int) = min + p * step
+        cap.text = "$title: ${fmt(v(bar.progress))}"
+        bar.setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: android.widget.SeekBar?, p: Int, fromUser: Boolean) {
+                cap.text = "$title: ${fmt(v(p))}"
+                if (fromUser) onChange(v(p))
+            }
+            override fun onStartTrackingTouch(sb: android.widget.SeekBar?) {}
+            override fun onStopTrackingTouch(sb: android.widget.SeekBar?) {}
+        })
+        box.addView(cap)
+        box.addView(bar, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(40)))
+        return box
+    }
+
 
     override fun onResume() {
         super.onResume()
@@ -338,9 +362,10 @@ class SettingsActivity : Activity() {
         imeOptions = EditorInfo.IME_ACTION_NEXT or EditorInfo.IME_FLAG_NO_EXTRACT_UI
     }
 
-    private fun switch(s: String, checked: Boolean) = Switch(this).apply {
+    private fun switch(s: String, checked: Boolean, onChange: (Boolean) -> Unit) = Switch(this).apply {
         text = s
         isChecked = checked
+        setOnCheckedChangeListener { _, v -> onChange(v) }
         gravity = Gravity.CENTER_VERTICAL
         minHeight = dp(48)
     }
