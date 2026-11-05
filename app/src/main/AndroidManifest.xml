@@ -25,7 +25,7 @@
         <activity
             android:name=".SettingsActivity"
             android:exported="true"
-            android:theme="@android:style/Theme.DeviceDefault.Wallpaper.NoTitleBar"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
             android:label="@string/app_name"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
@@ -58,7 +58,7 @@
             android:label="Цели"
             android:taskAffinity="com.kayo.infowall.goals"
             android:excludeFromRecents="true"
-            android:theme="@android:style/Theme.DeviceDefault.Wallpaper.NoTitleBar"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
             android:windowSoftInputMode="adjustResize" />
 
         <activity

@@ -12,7 +12,6 @@ import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.EditText
-import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -22,7 +21,7 @@ import java.util.Locale
 
 /**
  * Цели по тапу на блок колец: 6 строк [название][дата][✕].
- * Панель снизу, сверху видны живые обои — кольца меняются сразу.
+ * Обычное окно на весь экран; кольца на обоях меняются сразу.
  */
 class GoalsActivity : OwnActivity() {
 
@@ -31,7 +30,6 @@ class GoalsActivity : OwnActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         goals += Goals.load(this)
 
@@ -53,14 +51,10 @@ class GoalsActivity : OwnActivity() {
         col.addView(Button(this).apply { text = "Готово"; setOnClickListener { finish() } })
 
         val scroll = ScrollView(this).apply {
-            setBackgroundColor(Color.argb(236, 6, 10, 14))
+            setBackgroundColor(Color.rgb(6, 10, 14))
             addView(col)
         }
-        val h = (resources.displayMetrics.heightPixels * 0.56f).toInt()
-        setContentView(FrameLayout(this).apply {
-            setOnClickListener { finish() }     // тап по обоям над панелью — закрыть
-            addView(scroll, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, h, Gravity.BOTTOM))
-        })
+        setContentView(scroll)
     }
 
     private fun row(i: Int): LinearLayout {

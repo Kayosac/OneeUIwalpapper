@@ -193,17 +193,12 @@ class SettingsActivity : OwnActivity() {
         col += button("Поставить на экран блокировки") { setWallpaper(InfoLockWallpaperService::class.java) }
         col += label("Только летящий рельеф, без виджетов, ракурс круче. В системном окне выберите «Экран блокировки».")
 
-        // живые обои за окном настроек; панель — нижние ~55 % экрана, верх (часы, плашки, погода) остаётся виден
-        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
-        val panelH = (resources.displayMetrics.heightPixels * 0.56f).toInt()
+        // обычное окно на весь экран; изменения видно на обоях в соседнем окне (многооконность)
         val scroll = ScrollView(this).apply {
-            setBackgroundColor(android.graphics.Color.argb(236, 6, 10, 14))
+            setBackgroundColor(android.graphics.Color.rgb(6, 10, 14))
             addView(col)
         }
-        val root = android.widget.FrameLayout(this).apply {
-            addView(scroll, android.widget.FrameLayout.LayoutParams(android.widget.FrameLayout.LayoutParams.MATCH_PARENT, panelH, Gravity.BOTTOM))
-        }
-        setContentView(root)
+        setContentView(scroll)
     }
 
     /** Записать изменение сразу — обои слушают настройки и перерисовываются. */
