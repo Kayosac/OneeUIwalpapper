@@ -768,7 +768,7 @@ class CyberRenderer {
         val wl = cr - 446f
         // пока вводится сумма — на месте погоды и календаря клавиатура (ниже панелей, до ряда приложений)
         if (f.fx != null && f.cfg.converter) {
-            drawPad(c, f, f.fx, cr - 640f, top, cr, 820f)   // крупные клавиши: перекрывает и часть сцены
+            drawPad(c, f, f.fx, wl, top, cr, bottom)   // ровно на месте погоды и календаря
         } else {
             padOnScreen.setEmpty()
             if (f.cfg.weather) drawWeather(c, f, wl, top, wl + 268f, bottom)
@@ -861,7 +861,7 @@ class CyberRenderer {
         padOnScreen.set(screenOx + l * k, t * k, screenOx + r * k, b * k)
         padPool.addAll(padKeys.map { it.second }); padKeys.clear()
         panel(c, l, t, r, b)
-        val pad = 8f; val g = 6f
+        val pad = 6f; val g = 4f
         val flashOn = fx.flashKey != null && System.currentTimeMillis() - fx.flashAt < 160
         curHave = RatesSource.parseCodes(f.cfg.currencies)
         val known = f.rates?.rates
@@ -883,7 +883,7 @@ class CyberRenderer {
                 val lab = FxEdit.keyLabel(key)
                 val isNum = lab.all { it.isDigit() || it == '.' }
                 text.typeface = if (isNum) numFace else labelFace
-                text.textSize = if (isNum) 30f else if (key.startsWith(FxEdit.CUR_PREFIX)) 13f else 11f
+                text.textSize = if (isNum) 18f else if (key.startsWith(FxEdit.CUR_PREFIX)) 11f else 9f
                 text.letterSpacing = if (isNum) 0f else 0.15f
                 val taken = key.startsWith(FxEdit.CUR_PREFIX) && key.removePrefix(FxEdit.CUR_PREFIX) in curHave
                 text.color = when { pressed -> Color.WHITE; strong -> accent; taken -> withA(label, 0.5f); isNum -> face; else -> label }
