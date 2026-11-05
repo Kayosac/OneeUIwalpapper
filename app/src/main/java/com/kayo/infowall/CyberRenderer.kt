@@ -720,7 +720,7 @@ class CyberRenderer {
         val wl = uiR - 446f
         if (f.cfg.weather) drawWeather(c, f, wl, top, wl + 268f, bottom)
         drawCalendar(c, wl + 278f, top, uiR, bottom)
-        if (f.cfg.converter) drawRates(c, f, uiR - 240f, bottom + 10f, uiR) else converterOnScreen.setEmpty()
+        if (f.cfg.converter) drawRates(c, f, uiR - 168f, bottom + 10f, uiR) else converterOnScreen.setEmpty()
     }
 
     private fun drawWeather(c: Canvas, f: FrameData, l: Float, t: Float, r: Float, b: Float) {
@@ -728,16 +728,16 @@ class CyberRenderer {
         val w = f.weather
         text.typeface = labelFace; text.letterSpacing = 0.25f; text.textSize = 10f; text.color = label
         drawMixed(c, f.city.ifBlank { "ПОГОДА" }.uppercase(), l + 12f, t + 20f)
-        text.letterSpacing = 0f; text.textSize = 11f
+        text.letterSpacing = 0f; text.textSize = 10f
         if (w == null) {
             drawMixed(c, f.weatherNote ?: "загрузка…", l + 12f, t + 36f)
             return
         }
         drawMixed(c, "${w.text} · ${w.wind.roundToInt()} м/с", l + 12f, t + 36f)
         val temp = signed(w.temp) + "°"
-        text.typeface = numFace; text.textSize = 32f; text.color = accent
-        text.setShadowLayer(12f, 0f, 0f, withA(accent, 0.6f))
-        c.drawText(temp, r - 12f - text.measureText(temp), t + 38f, text)
+        text.typeface = numFace; text.textSize = 11f; text.color = accent
+        text.setShadowLayer(8f, 0f, 0f, withA(accent, 0.6f))
+        c.drawText(temp, r - 12f - text.measureText(temp), t + 20f, text)
         text.clearShadowLayer()
 
         val cellW = (r - l - 24f) / 7f
@@ -752,7 +752,7 @@ class CyberRenderer {
             text.typeface = labelFace; text.textSize = 10f; text.letterSpacing = 0.08f; text.color = if (i == 0) accent else label
             centerMixed(c, d.dow, mid, y0 + 16f)
             drawWxIcon(c, d.kind, mid, y0 + 38f)
-            text.typeface = numFace; text.letterSpacing = 0f; text.textSize = 13f; text.color = accent
+            text.typeface = numFace; text.letterSpacing = 0f; text.textSize = 11f; text.color = accent
             center(c, signed(d.max) + "°", mid, y0 + 70f)
             text.textSize = 11f; text.color = label
             center(c, signed(d.min) + "°", mid, y0 + 86f)
@@ -763,7 +763,7 @@ class CyberRenderer {
     private fun drawRates(c: Canvas, f: FrameData, l: Float, t: Float, r: Float) {
         val codes = RatesSource.parseCodes(f.cfg.currencies).take(4)
         fxRowCodes = codes
-        val rowH = 34f; val gap = 4f; val codeW = 52f
+        val rowH = 20f; val gap = 3f; val codeW = 38f
         val ui = f.cfg.uiScale
         val k = ui * screenScale
         val bottom = t + codes.size * (rowH + gap) - gap
@@ -775,17 +775,17 @@ class CyberRenderer {
             val active = code == f.cfg.fxFrom
             // окошко валюты
             box(c, l, y, l + codeW, y + rowH, false)
-            text.typeface = labelFace; text.textSize = 12f; text.letterSpacing = 0.08f
+            text.typeface = labelFace; text.textSize = 10f; text.letterSpacing = 0.08f
             text.color = if (active) accent else label
-            center(c, code, l + codeW / 2f, y + 21f)
+            center(c, code, l + codeW / 2f, y + 14f)
             // окошко суммы
             box(c, l + codeW + gap, y, r, y + rowH, active)
             val v = rates?.convert(f.cfg.fxAmount, f.cfg.fxFrom, code)
             val s = if (v == null) "—" else fmtMoney(v)
-            text.typeface = numFace; text.textSize = 17f; text.letterSpacing = 0f
+            text.typeface = numFace; text.textSize = 11f; text.letterSpacing = 0f
             text.color = face
-            if (active) text.setShadowLayer(8f, 0f, 0f, withA(accent, 0.7f))
-            c.drawText(s, r - 10f - text.measureText(s), y + 23f, text)
+            if (active) text.setShadowLayer(6f, 0f, 0f, withA(accent, 0.7f))
+            c.drawText(s, r - 6f - text.measureText(s), y + 14f, text)
             text.clearShadowLayer()
         }
     }
@@ -794,7 +794,7 @@ class CyberRenderer {
         fill.shader = null
         fill.color = Color.argb(217, 0, 10, 14)
         c.drawRect(l, t, r, b, fill)
-        if (active) { line(withA(accent, 0.3f), 6f); c.drawRect(l, t, r, b, stroke) }
+        if (active) { line(withA(accent, 0.3f), 4f); c.drawRect(l, t, r, b, stroke) }
         line(withA(accent, if (active) 0.85f else 0.32f), 1f)
         c.drawRect(l, t, r, b, stroke)
     }
@@ -854,10 +854,10 @@ class CyberRenderer {
         text.color = accent
         c.drawText(monthTitle, l + 10f, t + 20f, text)
         text.color = label
-        text.letterSpacing = 0.1f
+        text.letterSpacing = 0.1f; text.textSize = 11f
         drawMixed(c, yearTitle, r - 10f - measureMixed(yearTitle), t + 20f)
         val cw = (r - l - 20f) / 7f
-        text.letterSpacing = 0f; text.textSize = 9f
+        text.typeface = labelFace; text.letterSpacing = 0f; text.textSize = 10f
         val wd = arrayOf("П", "В", "С", "Ч", "П", "С", "В")
         for (k in 0 until 7) center(c, wd[k], l + 10f + cw * k + cw / 2f, t + 36f)
         val rowH = 18f
