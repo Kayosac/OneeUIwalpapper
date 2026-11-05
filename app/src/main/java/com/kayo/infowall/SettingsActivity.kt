@@ -38,6 +38,8 @@ class SettingsActivity : Activity() {
     private lateinit var fps: EditText
     private lateinit var glow: EditText
     private lateinit var uiScale: EditText
+    private lateinit var shadeSolid: EditText
+    private lateinit var shadeFade: EditText
     private lateinit var yaw: EditText
     private lateinit var zones: EditText
     private lateinit var swWeather: Switch
@@ -82,6 +84,10 @@ class SettingsActivity : Activity() {
         glow = field("1", trim(cfg.glow), InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL); col += glow
         col += label("Масштаб интерфейса: 0.6–1 (0.8 — как в макете)")
         uiScale = field("0.8", trim(cfg.uiScale), InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL); col += uiScale
+        col += label("Чёрный низ под доком, % высоты экрана (подгони под свой док)")
+        shadeSolid = field("9.3", trim(cfg.shadeSolid * 100f), InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL); col += shadeSolid
+        col += label("Переход из чёрного в прозрачность над доком, % высоты")
+        shadeFade = field("11.2", trim(cfg.shadeFade * 100f), InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL); col += shadeFade
         col += label("Поворот камеры, ° (0–34)")
         yaw = field("24", cfg.yawDeg.toInt().toString(), InputType.TYPE_CLASS_NUMBER); col += yaw
 
@@ -139,7 +145,7 @@ class SettingsActivity : Activity() {
 
         // --- курсы ---
         col += header("Курсы валют")
-        swConverter = switch("Блок курсов (тап по нему — конвертер)", cfg.converter); col += swConverter
+        swConverter = switch("Конвертер на экране (тап по строке — ввести сумму)", cfg.converter); col += swConverter
         col += label("Четыре валюты через запятую, первая — базовая")
         currencies = field(Prefs.DEFAULT_CURRENCIES, cfg.currencies, InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS)
         col += currencies
@@ -231,6 +237,8 @@ class SettingsActivity : Activity() {
         Prefs.get(this).edit()
             .putString(Prefs.K_ACCENT, color)
             .putInt(Prefs.K_FPS, (fps.text.toString().toIntOrNull() ?: 20).coerceIn(0, 30))
+            .putFloat(Prefs.K_SHADE_SOLID, ((shadeSolid.text.toString().replace(',', '.').toFloatOrNull() ?: 9.3f) / 100f).coerceIn(0f, 0.4f))
+            .putFloat(Prefs.K_SHADE_FADE, ((shadeFade.text.toString().replace(',', '.').toFloatOrNull() ?: 11.2f) / 100f).coerceIn(0.02f, 0.5f))
             .putFloat(Prefs.K_UI_SCALE, (uiScale.text.toString().replace(',', '.').toFloatOrNull() ?: 0.8f).coerceIn(0.6f, 1f))
             .putFloat(Prefs.K_GLOW, (glow.text.toString().replace(',', '.').toFloatOrNull() ?: 1f).coerceIn(0f, 2f))
             .putFloat(Prefs.K_YAW, (yaw.text.toString().toFloatOrNull() ?: 24f).coerceIn(0f, 34f))

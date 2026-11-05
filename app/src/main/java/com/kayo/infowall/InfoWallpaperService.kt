@@ -138,8 +138,9 @@ class InfoWallpaperService : WallpaperService() {
         /** Двойной тап по пустому месту — обновить источник и погоду. */
         override fun onCommand(action: String?, x: Int, y: Int, z: Int, extras: Bundle?, resultRequested: Boolean): Bundle? {
             if (action == WallpaperManager.COMMAND_TAP) {
-                if (cfg.converter && renderer.converterHit(x.toFloat(), y.toFloat())) {
-                    openConverter()
+                val code = if (cfg.converter) renderer.converterHit(x.toFloat(), y.toFloat()) else null
+                if (code != null) {
+                    openConverter(code)
                     return null
                 }
                 val now = SystemClock.elapsedRealtime()
@@ -181,10 +182,11 @@ class InfoWallpaperService : WallpaperService() {
             }
         }
 
-        private fun openConverter() {
+        private fun openConverter(code: String) {
             try {
                 startActivity(
                     android.content.Intent(applicationContext, ConverterActivity::class.java)
+                        .putExtra(ConverterActivity.EXTRA_CODE, code)
                         .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK),
                 )
             } catch (_: Exception) {
@@ -291,6 +293,8 @@ class InfoWallpaperService : WallpaperService() {
                 val fd = FrameData(cfg, if (cfg.fps <= 0) 0f else t, stats, remote, remoteError, weather, weatherNote, cfg.city, mesh, news, rates)
                 if (Build.VERSION.SDK_INT >= 31 && cfg.glow > 0f && c.isHardwareAccelerated) drawWithBloom(c, fd)
                 else renderer.draw(c, width, height, fd)
+                // чёрный низ — поверх всего, включая свечение
+                renderer.drawBottomShade(c, width, height, cfg)
             } catch (_: Exception) {
                 // поверхность могла исчезнуть
             } finally {

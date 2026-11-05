@@ -63,10 +63,39 @@ class CyberRenderer {
 
     // где на экране (в пикселях) лежит блок курсов — для тапа
     private val converterOnScreen = RectF()
+    private val fxRowRects = Array(4) { RectF() }
+    private var fxRowCodes: List<String> = emptyList()
     private var screenScale = 1f
     private var screenOx = 0f
 
-    fun converterHit(x: Float, y: Float): Boolean = !converterOnScreen.isEmpty && converterOnScreen.contains(x, y)
+    /** Валюта строки конвертера под точкой тапа (экранные пиксели) или null. */
+    fun converterHit(x: Float, y: Float): String? {
+        if (converterOnScreen.isEmpty || !converterOnScreen.contains(x, y)) return null
+        for (i in fxRowCodes.indices) if (fxRowRects[i].contains(x, y)) return fxRowCodes[i]
+        return null
+    }
+
+    // ---------- затемнение снизу: последний слой, поверх сцены и свечения ----------
+    private val shadeP = Paint()
+    private var shadeKey = ""
+
+    fun drawBottomShade(c: Canvas, w: Int, h: Int, cfg: Config) {
+        val solidTop = h * (1f - cfg.shadeSolid)
+        val fadeTop = solidTop - h * cfg.shadeFade
+        val key = "$h|${cfg.shadeSolid}|${cfg.shadeFade}"
+        if (key != shadeKey) {
+            shadeKey = key
+            shadeP.shader = LinearGradient(
+                0f, fadeTop, 0f, solidTop,
+                intArrayOf(Color.TRANSPARENT, withA(Color.BLACK, 0.55f), withA(Color.BLACK, 0.9f), Color.BLACK),
+                floatArrayOf(0f, 0.45f, 0.8f, 1f), Shader.TileMode.CLAMP,
+            )
+        }
+        c.drawRect(0f, fadeTop, w.toFloat(), solidTop, shadeP)
+        fill.shader = null
+        fill.color = Color.BLACK
+        c.drawRect(0f, solidTop, w.toFloat(), h.toFloat(), fill)
+    }
 
     /** Циферблат, мелкие цифры (значения, пояса) и подписи (кириллица). */
     fun setFonts(clock: Typeface, num: Typeface, label: Typeface) {
@@ -323,7 +352,7 @@ class CyberRenderer {
         }
 
         // затемнение снизу — спокойный фон под иконками
-        c.drawRect(xl, 548f, xr, dh, bottomP)
+        // затемнение снизу рисуется отдельным последним слоем — см. drawBottomShade
     }
 
     private fun buildTerrain(t: Float, yawDeg: Float) {
@@ -472,8 +501,9 @@ class CyberRenderer {
         text.typeface = numFace; text.textSize = 24f; text.letterSpacing = 0f
         for ((lab, time) in zoneTimes) {
             text.color = label
-            text.textSize = 20.5f   // высота заглавных Days One = высоте цифр Bitcount 24
-            zx += drawMixed(c, lab, zx, zy) + 7f
+            text.typeface = numFace; text.textSize = 24f
+            c.drawText(lab, zx, zy, text)
+            zx += text.measureText(lab) + 8f
             text.typeface = numFace; text.textSize = 24f
             text.color = accent
             text.setShadowLayer(10f, 0f, 0f, withA(accent, 0.65f))
@@ -690,7 +720,7 @@ class CyberRenderer {
         val wl = uiR - 446f
         if (f.cfg.weather) drawWeather(c, f, wl, top, wl + 268f, bottom)
         drawCalendar(c, wl + 278f, top, uiR, bottom)
-        if (f.cfg.converter) drawRates(c, f, wl, bottom + 10f, uiR, bottom + 84f) else converterOnScreen.setEmpty()
+        if (f.cfg.converter) drawRates(c, f, uiR - 240f, bottom + 10f, uiR) else converterOnScreen.setEmpty()
     }
 
     private fun drawWeather(c: Canvas, f: FrameData, l: Float, t: Float, r: Float, b: Float) {
@@ -729,42 +759,55 @@ class CyberRenderer {
         }
     }
 
-    /** Курсы в первой валюте списка; тап по блоку открывает конвертер. */
-    private fun drawRates(c: Canvas, f: FrameData, l: Float, t: Float, r: Float, b: Float) {
-        panel(c, l, t, r, b)
+    /** Конвертер на экране: строки [валюта][сумма]; тап по строке — ввод суммы в этой валюте. */
+    private fun drawRates(c: Canvas, f: FrameData, l: Float, t: Float, r: Float) {
+        val codes = RatesSource.parseCodes(f.cfg.currencies).take(4)
+        fxRowCodes = codes
+        val rowH = 34f; val gap = 4f; val codeW = 52f
         val ui = f.cfg.uiScale
-        converterOnScreen.set(
-            screenOx + l * ui * screenScale, t * ui * screenScale,
-            screenOx + r * ui * screenScale, b * ui * screenScale,
-        )
-        val codes = RatesSource.parseCodes(f.cfg.currencies)
-        val base = codes.firstOrNull() ?: "KZT"
-        text.letterSpacing = 0.25f; text.textSize = 10f; text.color = label
-        drawMixed(c, "КУРС В $base", l + 12f, t + 18f)
+        val k = ui * screenScale
+        val bottom = t + codes.size * (rowH + gap) - gap
+        converterOnScreen.set(screenOx + l * k, t * k, screenOx + r * k, bottom * k)
         val rates = f.rates
-        text.letterSpacing = 0f
-        val hint = if (rates == null) "загрузка…" else "тап — конвертер"
-        drawMixed(c, hint, r - 12f - measureMixed(hint), t + 18f)
-        if (rates == null) return
-        val others = codes.drop(1)
-        if (others.isEmpty()) return
-        val cellW = (r - l - 24f) / others.size
-        others.forEachIndexed { i, code ->
-            val x = l + 12f + i * cellW
-            text.textSize = 11f; text.color = label; text.letterSpacing = 0.1f
-            drawMixed(c, code, x, t + 52f)
-            val v = rates.convert(1.0, code, base)
-            val s = when {
-                v == null -> "—"
-                v >= 100 -> String.format(Locale.US, "%.1f", v)
-                v >= 1 -> String.format(Locale.US, "%.2f", v)
-                else -> String.format(Locale.US, "%.4f", v)
-            }
-            text.textSize = 20f; text.color = accent; text.letterSpacing = 0f
-            text.setShadowLayer(10f, 0f, 0f, withA(accent, 0.6f))
-            drawMixed(c, s, x + 38f, t + 53f)
+        codes.forEachIndexed { i, code ->
+            val y = t + i * (rowH + gap)
+            fxRowRects[i].set(screenOx + l * k, y * k, screenOx + r * k, (y + rowH) * k)
+            val active = code == f.cfg.fxFrom
+            // окошко валюты
+            box(c, l, y, l + codeW, y + rowH, false)
+            text.typeface = labelFace; text.textSize = 12f; text.letterSpacing = 0.08f
+            text.color = if (active) accent else label
+            center(c, code, l + codeW / 2f, y + 21f)
+            // окошко суммы
+            box(c, l + codeW + gap, y, r, y + rowH, active)
+            val v = rates?.convert(f.cfg.fxAmount, f.cfg.fxFrom, code)
+            val s = if (v == null) "—" else fmtMoney(v)
+            text.typeface = numFace; text.textSize = 17f; text.letterSpacing = 0f
+            text.color = face
+            if (active) text.setShadowLayer(8f, 0f, 0f, withA(accent, 0.7f))
+            c.drawText(s, r - 10f - text.measureText(s), y + 23f, text)
             text.clearShadowLayer()
         }
+    }
+
+    private fun box(c: Canvas, l: Float, t: Float, r: Float, b: Float, active: Boolean) {
+        fill.shader = null
+        fill.color = Color.argb(217, 0, 10, 14)
+        c.drawRect(l, t, r, b, fill)
+        if (active) { line(withA(accent, 0.3f), 6f); c.drawRect(l, t, r, b, stroke) }
+        line(withA(accent, if (active) 0.85f else 0.32f), 1f)
+        c.drawRect(l, t, r, b, stroke)
+    }
+
+    private fun fmtMoney(v: Double): String {
+        val a = kotlin.math.abs(v)
+        val s = when {
+            a >= 10_000 -> String.format(Locale.US, "%,.0f", v)
+            a >= 1 -> String.format(Locale.US, "%,.2f", v)
+            a == 0.0 -> "0"
+            else -> String.format(Locale.US, "%.4f", v)
+        }
+        return s.replace(',', ' ')
     }
 
     private fun drawWxIcon(c: Canvas, kind: WxKind, cx: Float, cy: Float) {

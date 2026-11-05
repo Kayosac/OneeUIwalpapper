@@ -36,6 +36,10 @@ data class Config(
     val news: Boolean,
     val converter: Boolean,
     val currencies: String,
+    val fxAmount: Double,
+    val fxFrom: String,
+    val shadeSolid: Float,
+    val shadeFade: Float,
     val newsRegion: String,
     val font: FontPreset,
     val fontVersion: Int,
@@ -65,6 +69,10 @@ object Prefs {
     const val K_CONVERTER = "converter"
     const val K_CURRENCIES = "currencies"
     const val DEFAULT_CURRENCIES = "KZT, RUB, USD, EUR"
+    const val K_FX_AMOUNT = "fx_amount"
+    const val K_FX_FROM = "fx_from"
+    const val K_SHADE_SOLID = "shade_solid"
+    const val K_SHADE_FADE = "shade_fade"
     const val K_NEWS_REGION = "news_region"
     const val K_FONT = "font"
     const val K_FONT_VER = "font_ver"
@@ -103,6 +111,11 @@ object Prefs {
             news = p.getBoolean(K_NEWS, true),
             converter = p.getBoolean(K_CONVERTER, true),
             currencies = p.getString(K_CURRENCIES, DEFAULT_CURRENCIES).orEmpty().ifBlank { DEFAULT_CURRENCIES },
+            fxAmount = p.getString(K_FX_AMOUNT, "1")?.toDoubleOrNull() ?: 1.0,
+            fxFrom = p.getString(K_FX_FROM, "USD").orEmpty().ifBlank { "USD" },
+            // доли высоты экрана: сплошной чёрный под доком и переход над ним
+            shadeSolid = p.getFloat(K_SHADE_SOLID, 0.093f).coerceIn(0f, 0.4f),
+            shadeFade = p.getFloat(K_SHADE_FADE, 0.112f).coerceIn(0.02f, 0.5f),
             newsRegion = p.getString(K_NEWS_REGION, "RU").orEmpty().ifBlank { "RU" },
             font = runCatching { FontPreset.valueOf(p.getString(K_FONT, "FINAL")!!) }.getOrDefault(FontPreset.FINAL),
             fontVersion = p.getInt(K_FONT_VER, 0),
