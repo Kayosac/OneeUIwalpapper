@@ -101,7 +101,15 @@ class Renderer {
             y += sectionP.descent() + 16 * s
 
             val items = remote?.items.orEmpty()
-            if (items.isNotEmpty()) drawCards(c, items, left, y, right, s)
+            if (items.isNotEmpty()) {
+                drawCards(c, items, left, y, right, s)
+            } else if (remote != null) {
+                // источник ответил, но пуст — подсказываем, а не молчим
+                smallP.color = 0xFF6B7585.toInt()
+                smallP.textSize = 22 * s
+                c.drawText(fit("пока нет данных — источник ответил пустым списком", smallP, right - left),
+                    left, y - smallP.ascent(), smallP)
+            }
         }
     }
 
