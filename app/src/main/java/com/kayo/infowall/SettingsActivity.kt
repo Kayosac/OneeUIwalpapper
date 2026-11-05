@@ -136,7 +136,12 @@ class SettingsActivity : Activity() {
                     append("OK")
                     d.title?.let { append(" · «$it»") }
                     append(" · ${d.items.size} шт.\n")
-                    d.items.take(12).forEach { append("• ${it.label}: ${it.value}  [${it.state.name.lowercase()}]\n") }
+                    d.items.take(12).forEach {
+                        append("• ${it.label}: ${it.value}")
+                        it.usedPercent?.let { u -> append("  (израсходовано ${u.toInt()}%)") }
+                        if (it.state != State.NONE) append("  [${it.state.name.lowercase()}]")
+                        append("\n")
+                    }
                 }
             } catch (e: Exception) {
                 "Ошибка: ${e.message ?: e.javaClass.simpleName}"

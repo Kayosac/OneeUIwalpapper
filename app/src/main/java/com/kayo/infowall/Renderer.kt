@@ -14,6 +14,7 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 /** Рисует один кадр обоев. Все размеры — в долях от короткой стороны экрана. */
 class Renderer {
@@ -33,6 +34,9 @@ class Renderer {
     private val labelP = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF9AA4B2.toInt() }
     private val valueP = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; typeface = medium }
     private val dotP = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val metaP = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF8A94A3.toInt() }
+    private val trackP = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x26FFFFFF }
+    private val barP = Paint(Paint.ANTI_ALIAS_FLAG)
     private val rect = RectF()
 
     private val clockFmt = SimpleDateFormat("HH:mm", Locale.getDefault())
@@ -104,44 +108,115 @@ class Renderer {
     /** Сетка карточек с переносом по ширине. Возвращает нижнюю границу. */
     private fun drawCards(c: Canvas, items: List<Item>, left: Float, top: Float, right: Float, s: Float): Float {
         val cw = 240 * s
-        val ch = 112 * s
+        val hasLimits = items.any { it.usedPercent != null }
+        val ch = (if (hasLimits) 144 else 112) * s
         val gap = 16 * s
         val pad = 20 * s
         val r = 22 * s
         val perRow = max(1, ((right - left + gap) / (cw + gap)).toInt())
         labelP.textSize = 22 * s
+        metaP.textSize = 19 * s
+        val nowSec = System.currentTimeMillis() / 1000
 
         var bottom = top
-        items.forEachIndexed { i, item ->
+        items.forEachIndexed { i, raw ->
+            val item = resolveLimit(raw, nowSec)
             val x = left + (i % perRow) * (cw + gap)
             val y = top + (i / perRow) * (ch + gap)
             rect.set(x, y, x + cw, y + ch)
             c.drawRoundRect(rect, r, r, cardP)
 
-            // подпись + цветная точка статуса
+            // подпись + цветная точка статуса; справа — время данных, если они устарели
             val ly = y + pad - labelP.ascent()
             var lx = x + pad
+            var labelRight = x + cw - pad
             stateColor(item.state)?.let { col ->
                 dotP.color = col
                 c.drawCircle(lx + 5 * s, ly - labelP.textSize * 0.35f, 5 * s, dotP)
                 lx += 18 * s
             }
-            c.drawText(fit(item.label, labelP, x + cw - pad - lx), lx, ly, labelP)
+            val upd = item.updatedAt
+            if (item.usedPercent != null && upd != null && nowSec - upd > STALE_SEC) {
+                val t = clockFmt.format(Date(upd * 1000))
+                val tw = metaP.measureText(t)
+                c.drawText(t, x + cw - pad - tw, ly, metaP)
+                labelRight -= tw + 10 * s
+            }
+            c.drawText(fit(item.label, labelP, labelRight - lx), lx, ly, labelP)
 
             // значение: сначала ужимаем шрифт, потом обрезаем «…»
             val avail = cw - 2 * pad
+            val barH = 8 * s
+            val valueBottom = if (item.usedPercent != null) y + ch - pad - barH - 14 * s else y + ch - pad
+            var meta: String? = null
+            var metaW = 0f
+            if (item.usedPercent != null) {
+                meta = when {
+                    raw.resetsAt != null && item.resetsAt == null -> "сброшен"
+                    item.resetsAt != null -> "через " + countdown(item.resetsAt - nowSec)
+                    else -> null
+                }
+                metaW = meta?.let { metaP.measureText(it) + 12 * s } ?: 0f
+            }
+            val valueAvail = avail - metaW
             var size = 40 * s
             valueP.textSize = size
-            while (valueP.measureText(item.value) > avail && size > 26 * s) {
+            while (valueP.measureText(item.value) > valueAvail && size > 26 * s) {
                 size -= 2 * s
                 valueP.textSize = size
             }
-            val vy = y + ch - pad - valueP.descent()
-            c.drawText(fit(item.value, valueP, avail), x + pad, vy, valueP)
+            val vy = valueBottom - valueP.descent()
+            c.drawText(fit(item.value, valueP, valueAvail), x + pad, vy, valueP)
+            if (meta != null) {
+                c.drawText(fit(meta, metaP, metaW), x + cw - pad - metaP.measureText(meta).coerceAtMost(metaW), vy, metaP)
+            }
+
+            // полоска остатка
+            item.usedPercent?.let { used ->
+                val remaining = (100f - used) / 100f
+                val by = y + ch - pad - barH
+                rect.set(x + pad, by, x + cw - pad, by + barH)
+                c.drawRoundRect(rect, barH / 2, barH / 2, trackP)
+                if (remaining > 0f) {
+                    barP.color = stateColor(item.state) ?: Color.WHITE
+                    val w = max(barH, (cw - 2 * pad) * remaining)
+                    rect.set(x + pad, by, x + pad + w, by + barH)
+                    c.drawRoundRect(rect, barH / 2, barH / 2, barP)
+                }
+            }
 
             bottom = max(bottom, y + ch)
         }
         return bottom
+    }
+
+    /**
+     * Для лимитов: если время сброса прошло, а свежих данных ещё нет —
+     * считаем окно обнулённым. Статус всегда пересчитывается по остатку.
+     */
+    private fun resolveLimit(item: Item, nowSec: Long): Item {
+        var used = item.usedPercent ?: return item
+        var resets = item.resetsAt
+        if (resets != null && nowSec >= resets) {
+            used = 0f
+            resets = null
+        }
+        val remaining = 100f - used
+        val state = when {
+            remaining < 10f -> State.BAD
+            remaining < 30f -> State.WARN
+            else -> State.OK
+        }
+        return item.copy(value = "${remaining.roundToInt()}%", state = state, usedPercent = used, resetsAt = resets)
+    }
+
+    private fun countdown(sec: Long): String {
+        val m = max(1L, (sec + 59) / 60)
+        return when {
+            m < 60 -> "${m}м"
+            m < 24 * 60 -> "${m / 60}ч ${m % 60}м"
+            else -> "${m / 1440}д ${(m % 1440) / 60}ч"
+        }
     }
 
     private fun fit(text: String, p: TextPaint, width: Float): String =
@@ -158,5 +233,7 @@ class Renderer {
         private val COLOR_OK = 0xFF4ADE80.toInt()
         private val COLOR_WARN = 0xFFFBBF24.toInt()
         private val COLOR_BAD = 0xFFF87171.toInt()
+        /** Данные лимитов старше этого — показываем, когда они пришли. */
+        private const val STALE_SEC = 15 * 60L
     }
 }

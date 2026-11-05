@@ -9,3 +9,5 @@ local.properties
 # ключи подписи не коммитим
 *.keystore
 *.jks
+server/.env
+server/data/

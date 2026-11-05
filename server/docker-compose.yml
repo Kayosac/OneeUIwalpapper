@@ -1,0 +1,15 @@
+services:
+  infowall-limits:
+    build: .
+    container_name: infowall-limits
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - infowall-data:/data
+    ports:
+      # Если перед сервисом стоит reverse proxy (Caddy/nginx) — оставь 127.0.0.1.
+      # Без прокси (доступ напрямую по IP:порту) — замени на "8787:8787".
+      - "127.0.0.1:8787:8787"
+
+volumes:
+  infowall-data:

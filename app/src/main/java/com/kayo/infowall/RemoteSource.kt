@@ -5,6 +5,7 @@ import org.json.JSONObject
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import kotlin.math.roundToInt
 
 /**
  * Загружает JSON и превращает его в карточки. Поддерживаемые форматы:
@@ -14,6 +15,10 @@ import java.net.URL
  * 3) {"CPU": "42%", "Диск": "71%"}            — плоский объект, ключ = подпись
  *
  * state: ok | warn | bad (или пусто). Вместо "label" можно "name".
+ *
+ * Лимиты: у элемента можно указать "used_percent" (0–100, сколько израсходовано),
+ * "resets_at" и "updated_at" (Unix-секунды). Тогда обои рисуют полоску остатка,
+ * отсчёт до сброса и сами обнуляют расход, когда сброс наступил.
  */
 object RemoteSource {
 
@@ -59,10 +64,23 @@ object RemoteSource {
         for (i in 0 until arr.length()) {
             val o = arr.optJSONObject(i) ?: continue
             val label = o.optString("label").ifBlank { o.optString("name").ifBlank { "?" } }
-            out += Item(label, valueToString(o.opt("value")), State.from(o.optString("state")))
+            val used = o.optDouble("used_percent", Double.NaN)
+                .takeIf { !it.isNaN() }?.toFloat()?.coerceIn(0f, 100f)
+            out += Item(
+                label = label,
+                value = if (o.has("value")) valueToString(o.opt("value"))
+                else used?.let { "${(100 - it).roundToInt()}%" } ?: "—",
+                state = State.from(o.optString("state")),
+                usedPercent = used,
+                resetsAt = epoch(o, "resets_at"),
+                updatedAt = epoch(o, "updated_at"),
+            )
         }
         return out
     }
+
+    private fun epoch(o: JSONObject, key: String): Long? =
+        o.optLong(key, 0L).takeIf { it > 0L }
 
     private fun valueToString(v: Any?): String = when (v) {
         null, JSONObject.NULL -> "—"

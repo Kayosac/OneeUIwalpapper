@@ -54,6 +54,11 @@ Android Studio → Open → эта папка → ▶ Run, либо `./gradlew i
 ```
 
 `state`: `ok` / `warn` / `bad` → зелёная / жёлтая / красная точка; без state — без точки.
+
+Карточка-лимит: добавь `used_percent` (0–100, сколько израсходовано) и `resets_at`
+(Unix-секунды). Обои покажут остаток, полоску, «через 2ч 10м» и сами обнулят
+расход, когда время сброса наступит. `updated_at` — когда данные получены:
+если старше 15 минут, в углу карточки видно время.
 Можно указать токен — уйдёт заголовком `Authorization: Bearer <токен>`.
 Обычный `http://` в локальной сети разрешён.
 
@@ -77,3 +82,58 @@ python3 -m http.server 8080
 - `SystemStats.kt` — локальные метрики
 - `RemoteSource.kt` — загрузка и разбор JSON
 - `SettingsActivity.kt` — экран настроек
+
+## Лимиты Claude и Codex на обоях
+
+Схема: **клиенты отправляют → VPS хранит → обои забирают.**
+Никаких токенов аккаунтов и неофициальных API: Claude Code сам отдаёт `rate_limits`
+в свою статус-строку, Codex пишет их в локальный лог сессии. Скрипт отправляет на VPS
+только проценты и время сброса.
+
+```
+Claude Code ─statusLine─┐
+                        ├─ clients/push.py ── POST /push ──> VPS: server/ ── GET /limits.json ──> InfoWall
+Codex ─────notify───────┘
+```
+
+Цифры обновляются при каждом ответе в Claude Code / Codex. Между ними обои показывают
+последние данные, идёт обратный отсчёт, а в момент сброса окно само становится 100%.
+Лимит Claude общий с claude.ai, поэтому расход в приложении увидишь при следующем
+ответе в Claude Code. Для ChatGPT видны лимиты Codex, а не обычного чата.
+
+### 1. Сервер на VPS (один раз)
+```bash
+git clone https://github.com/Kayosac/OneeUIwalpapper.git infowall
+cd infowall/server
+./setup.sh          # создаст .env с двумя токенами и поднимет Docker-контейнер
+```
+Без Docker: `INFOWALL_WRITE_TOKEN=... INFOWALL_READ_TOKEN=... python3 limits_server.py`.
+
+Сервис слушает `127.0.0.1:8787`. Наружу — через reverse proxy с HTTPS, например Caddy:
+```
+limits.example.com {
+    reverse_proxy 127.0.0.1:8787
+}
+```
+Без прокси замени порт в `docker-compose.yml` на `"8787:8787"` и ходи по `http://IP:8787`
+(работает, но токены идут открытым текстом).
+
+Два токена: **WRITE** — только для клиентов, **READ** — только для обоев.
+Утечёт READ — увидят твои проценты; утечёт WRITE — смогут подменить цифры. Больше ничего.
+
+### 2. Клиент там, где запускаешь Claude Code / Codex
+```bash
+curl -fsSL https://raw.githubusercontent.com/Kayosac/OneeUIwalpapper/main/clients/push.py -o /tmp/push.py
+python3 /tmp/push.py install --url https://limits.example.com --token <WRITE_TOKEN>
+```
+`install` копирует скрипт в `~/.infowall/`, прописывает `statusLine` в `~/.claude/settings.json`
+(твоя старая статус-строка сохраняется и показывается как раньше) и `notify` в `~/.codex/config.toml`
+(если там уже есть свой notify — не трогает и подскажет, как совместить). Перед правкой делает
+`.infowall-backup`. Убрать всё: `python3 ~/.infowall/push.py uninstall`.
+
+Проверка без Claude/Codex: `python3 ~/.infowall/push.py test` (убрать: `test --clear`).
+
+### 3. Обои
+InfoWall → URL `https://limits.example.com/limits.json`, токен — **READ_TOKEN**,
+интервал 60 сек → «Проверить источник» → «Сохранить».
+

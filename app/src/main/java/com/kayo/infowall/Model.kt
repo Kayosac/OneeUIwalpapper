@@ -16,7 +16,19 @@ enum class State {
     }
 }
 
-data class Item(val label: String, val value: String, val state: State = State.NONE)
+/**
+ * Карточка. Если задан [usedPercent] — это «лимит»: обои сами считают остаток,
+ * рисуют полоску и обратный отсчёт до [resetsAt], а после сброса показывают 100%.
+ * Время — Unix-секунды.
+ */
+data class Item(
+    val label: String,
+    val value: String,
+    val state: State = State.NONE,
+    val usedPercent: Float? = null,
+    val resetsAt: Long? = null,
+    val updatedAt: Long? = null,
+)
 
 data class RemoteData(val title: String?, val items: List<Item>)
 
