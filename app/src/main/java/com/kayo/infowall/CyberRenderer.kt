@@ -65,6 +65,7 @@ class CyberRenderer {
         clockFace = clock
         numFace = num
         labelFace = label
+        tickerRunsSize = -1f   // ширины отрезков бегущей строки зависят от шрифтов
     }
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
@@ -461,8 +462,9 @@ class CyberRenderer {
         text.typeface = numFace; text.textSize = 24f; text.letterSpacing = 0f
         for ((lab, time) in zoneTimes) {
             text.color = label
-            c.drawText(lab, zx, zy, text)
-            zx += text.measureText(lab) + 8f
+            text.textSize = 22f
+            zx += drawMixed(c, lab, zx, zy) + 8f
+            text.typeface = numFace; text.textSize = 24f
             text.color = accent
             text.setShadowLayer(10f, 0f, 0f, withA(accent, 0.65f))
             c.drawText(time, zx, zy, text)
@@ -590,6 +592,10 @@ class CyberRenderer {
 
     private var tickerKey = ""
     private var tickerMsg = ""
+    private val tickerRuns = ArrayList<Run>()
+    private var tickerRunsFor: String? = null
+    private var tickerRunsSize = -1f
+    private var tickerWidth = 0f
 
     private fun drawTicker(c: Canvas, f: FrameData) {
         val newsOn = f.cfg.news && f.news.isNotEmpty()
@@ -621,16 +627,38 @@ class CyberRenderer {
             }
             tickerMsg = parts.joinToString("   //   ") + "   //   "
         }
-        val msg = tickerMsg
+        if (tickerRunsFor !== tickerMsg) {
+            runs(tickerMsg, tickerRuns.also { it.clear() })
+            tickerRunsFor = tickerMsg
+            tickerRunsSize = -1f
+        }
         text.typeface = labelFace; text.textSize = 15f; text.letterSpacing = 0.06f; text.color = accent
-        val tw = text.measureText(msg)
+        if (tickerRunsSize != text.textSize) {
+            var total = 0f
+            for (r in tickerRuns) {
+                text.typeface = if (r.num) numFace else labelFace
+                r.width = text.measureText(r.text)
+                total += r.width
+            }
+            tickerWidth = total
+            tickerRunsSize = text.textSize
+        }
+        val tw = tickerWidth
         if (tw <= 0f) return
         c.save()
         c.clipRect(48f, top + 1f, uiR, bottom - 1f)
         text.setShadowLayer(8f, 0f, 0f, withA(accent, 0.6f))
         var x = 48f - (f.t * 40f) % tw
         while (x < uiR) {
-            c.drawText(msg, x, top + 22f, text)
+            var rx = x
+            for (r in tickerRuns) {
+                if (rx > uiR) break
+                if (rx + r.width >= 48f) {
+                    text.typeface = if (r.num) numFace else labelFace
+                    c.drawText(r.text, rx, top + 22f, text)
+                }
+                rx += r.width
+            }
             x += tw
         }
         text.clearShadowLayer()
@@ -658,13 +686,13 @@ class CyberRenderer {
         panel(c, l, t, r, b)
         val w = f.weather
         text.typeface = labelFace; text.letterSpacing = 0.25f; text.textSize = 10f; text.color = label
-        c.drawText(f.city.ifBlank { "ПОГОДА" }.uppercase(), l + 12f, t + 20f, text)
+        drawMixed(c, f.city.ifBlank { "ПОГОДА" }.uppercase(), l + 12f, t + 20f)
         text.letterSpacing = 0f; text.textSize = 11f
         if (w == null) {
-            c.drawText(f.weatherNote ?: "загрузка…", l + 12f, t + 36f, text)
+            drawMixed(c, f.weatherNote ?: "загрузка…", l + 12f, t + 36f)
             return
         }
-        c.drawText("${w.text} · ${w.wind.roundToInt()} м/с", l + 12f, t + 36f, text)
+        drawMixed(c, "${w.text} · ${w.wind.roundToInt()} м/с", l + 12f, t + 36f)
         val temp = signed(w.temp) + "°"
         text.typeface = numFace; text.textSize = 32f; text.color = accent
         text.setShadowLayer(12f, 0f, 0f, withA(accent, 0.6f))
@@ -681,7 +709,7 @@ class CyberRenderer {
             }
             val mid = cx0 + (cellW - 2f) / 2f
             text.typeface = labelFace; text.textSize = 10f; text.letterSpacing = 0.08f; text.color = if (i == 0) accent else label
-            center(c, d.dow, mid, y0 + 16f)
+            centerMixed(c, d.dow, mid, y0 + 16f)
             drawWxIcon(c, d.kind, mid, y0 + 38f)
             text.typeface = numFace; text.letterSpacing = 0f; text.textSize = 13f; text.color = accent
             center(c, signed(d.max) + "°", mid, y0 + 70f)
@@ -734,7 +762,8 @@ class CyberRenderer {
         text.color = accent
         c.drawText(monthTitle, l + 10f, t + 20f, text)
         text.color = label
-        c.drawText(yearTitle, r - 10f - text.measureText(yearTitle), t + 20f, text)
+        text.letterSpacing = 0.1f
+        drawMixed(c, yearTitle, r - 10f - measureMixed(yearTitle), t + 20f)
         val cw = (r - l - 20f) / 7f
         text.letterSpacing = 0f; text.textSize = 9f
         val wd = arrayOf("П", "В", "С", "Ч", "П", "С", "В")
@@ -763,6 +792,51 @@ class CyberRenderer {
     }
 
     // ================= утилиты =================
+
+    /** Цифра или «цифровой» знак рядом с цифрой (12:30, 3.5, 71%, +6°, 8/11). */
+    private fun isNumChar(s: String, i: Int): Boolean {
+        val ch = s[i]
+        if (ch in '0'..'9') return true
+        if (NUM_PUNCT.indexOf(ch) < 0) return false
+        val prev = if (i > 0) s[i - 1] else ' '
+        val next = if (i + 1 < s.length) s[i + 1] else ' '
+        return prev in '0'..'9' || next in '0'..'9'
+    }
+
+    /** Разбивает строку на отрезки «цифры / буквы»; пробелы прилипают к текущему отрезку. */
+    private fun runs(s: String, out: ArrayList<Run>) {
+        out.clear()
+        var i = 0
+        while (i < s.length) {
+            val num = isNumChar(s, i)
+            var j = i + 1
+            while (j < s.length && (s[j] == ' ' || isNumChar(s, j) == num)) j++
+            out += Run(s.substring(i, j), num)
+            i = j
+        }
+    }
+
+    private class Run(val text: String, val num: Boolean) { var width = 0f }
+
+    private val tmpRuns = ArrayList<Run>()
+
+    /** Рисует строку: цифры — шрифтом цифр, всё остальное — шрифтом подписей. Возвращает ширину. */
+    private fun drawMixed(c: Canvas?, s: String, x: Float, y: Float): Float {
+        runs(s, tmpRuns)
+        var cx = x
+        for (r in tmpRuns) {
+            text.typeface = if (r.num) numFace else labelFace
+            c?.drawText(r.text, cx, y, text)
+            cx += text.measureText(r.text)
+        }
+        return cx - x
+    }
+
+    private fun measureMixed(s: String) = drawMixed(null, s, 0f, 0f)
+
+    private fun centerMixed(c: Canvas, s: String, cx: Float, y: Float) {
+        drawMixed(c, s, cx - measureMixed(s) / 2f, y)
+    }
 
     private fun caption(c: Canvas, s: String, x: Float, y: Float) {
         text.typeface = labelFace; text.textSize = 11f; text.letterSpacing = 0.25f; text.color = label
@@ -806,6 +880,7 @@ class CyberRenderer {
         private const val CAM = 0.5617f
         private const val SUN_R = 175f
         private const val FOG_H = 90f
+        private const val NUM_PUNCT = ".,:%°+−-/"
         private val PARTICLE_X = floatArrayOf(-73f, -47f, -25f, -7f, 7f, 21f, 39f, 61f, -35f, 31f, -53f, 15f)
 
         fun withA(c: Int, a: Float): Int =
