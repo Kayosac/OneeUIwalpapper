@@ -472,8 +472,8 @@ class CyberRenderer {
         text.typeface = numFace; text.textSize = 24f; text.letterSpacing = 0f
         for ((lab, time) in zoneTimes) {
             text.color = label
-            text.textSize = 22f
-            zx += drawMixed(c, lab, zx, zy) + 8f
+            text.textSize = 20.5f   // высота заглавных Days One = высоте цифр Bitcount 24
+            zx += drawMixed(c, lab, zx, zy) + 7f
             text.typeface = numFace; text.textSize = 24f
             text.color = accent
             text.setShadowLayer(10f, 0f, 0f, withA(accent, 0.65f))
