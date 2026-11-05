@@ -139,15 +139,12 @@ class CyberRenderer {
     private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = mono }
     private val skyP = Paint()
-    private val bloomP = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val sunP = Paint(Paint.ANTI_ALIAS_FLAG)
     private val fogP = Paint()
     private val bottomP = Paint()
     private val horizonP = Paint(Paint.ANTI_ALIAS_FLAG)
 
     private val rect = RectF()
     private val path = Path()
-    private val sunClip = Path()
     private val camera = Camera()
     private val matrix = Matrix()
 
@@ -155,7 +152,7 @@ class CyberRenderer {
     private var shaderKey = ""
 
     // ---------- рельеф ----------
-    private val rows = 18
+    private val rows = 26
     private val cols = 66
     private val gx = Array(rows) { FloatArray(cols) }
     private val gy = Array(rows) { FloatArray(cols) }
@@ -204,7 +201,10 @@ class CyberRenderer {
         val ox = (w - W * s) / 2f
         val ext = ox / s                    // поля по бокам на широких экранах
         val dh = h / s                      // видимая высота в макетных единицах (≥ 800)
-        val vp = CX - tan(Math.toRadians(cfg.yawDeg.toDouble())).toFloat() * F
+        // камера «летит»: рыскание, крен и тангаж плавно гуляют во времени
+        val t = f.t
+        val yawNow = cfg.yawDeg + 14f * sin(t * 0.05f) + 5f * sin(t * 0.13f + 1f)
+        val vp = CX - tan(Math.toRadians(yawNow.toDouble())).toFloat() * F
 
         screenScale = s
         screenOx = ox
@@ -213,8 +213,8 @@ class CyberRenderer {
         c.translate(ox, 0f)
         c.scale(s, s)
 
-        ensureShaders(vp, dh, ext)
-        drawScene(c, f, vp, ext, dh)
+        ensureShaders(dh, ext)
+        drawScene(c, f, vp, yawNow, ext, dh)
         // интерфейс мельче сцены: слой рисуется в увеличенных координатах и сжимается
         val ui = cfg.uiScale
         c.save()
@@ -259,75 +259,42 @@ class CyberRenderer {
 
     fun invalidateTime() { minuteKey = -1 }
 
-    private fun ensureShaders(vp: Float, dh: Float, ext: Float) {
-        val key = "$accent|${vp.roundToInt()}|${dh.roundToInt()}|${ext.roundToInt()}"
+    private fun ensureShaders(dh: Float, ext: Float) {
+        val key = "$accent|${dh.roundToInt()}|${ext.roundToInt()}"
         if (key == shaderKey) return
         shaderKey = key
         skyP.shader = LinearGradient(0f, 300f, 0f, HZ, Color.TRANSPARENT, withA(accent, 0.14f), Shader.TileMode.CLAMP)
-        bloomP.shader = RadialGradient(
-            vp, HZ, 330f,
-            intArrayOf(withA(accent, 0.42f), withA(accent, 0.14f), Color.TRANSPARENT),
-            floatArrayOf(0f, 0.45f, 1f), Shader.TileMode.CLAMP,
-        )
-        sunP.shader = LinearGradient(
-            0f, HZ - SUN_R, 0f, HZ,
-            intArrayOf(Color.WHITE, accent, withA(accent, 0.1f)),
-            floatArrayOf(0f, 0.3f, 1f), Shader.TileMode.CLAMP,
-        )
         fogP.shader = LinearGradient(
             0f, HZ, 0f, HZ + FOG_H,
             intArrayOf(withA(Color.BLACK, 0.6f), withA(Color.BLACK, 0.22f), Color.TRANSPARENT),
             floatArrayOf(0f, 0.3f, 1f), Shader.TileMode.CLAMP,
         )
-        val top = 548f
-        val span = max(1f, dh - top)
-        bottomP.shader = LinearGradient(
-            0f, top, 0f, dh,
-            intArrayOf(Color.TRANSPARENT, withA(Color.BLACK, 0.28f), withA(Color.BLACK, 0.5f), withA(Color.BLACK, 0.66f)),
-            floatArrayOf(0f, 80f / span, 180f / span, 1f).map { it.coerceIn(0f, 1f) }.toFloatArray(),
-            Shader.TileMode.CLAMP,
-        )
-        val xl = -ext - 200f
-        val xr = W + ext + 200f
-        val vpf = ((vp - xl) / (xr - xl)).coerceIn(0.05f, 0.9f)
+        // горизонт: яркое пятно в нуле, при рисовании сдвигается в точку схода
         horizonP.shader = LinearGradient(
-            xl, 0f, xr, 0f,
-            intArrayOf(withA(accent, 0.4f), Color.WHITE, accent, withA(accent, 0.4f)),
-            floatArrayOf(0f, vpf, (vpf + 0.12f).coerceAtMost(0.98f), 1f), Shader.TileMode.CLAMP,
+            -1600f, 0f, 1600f, 0f,
+            intArrayOf(withA(accent, 0.4f), accent, Color.WHITE, accent, withA(accent, 0.4f)),
+            floatArrayOf(0f, 0.42f, 0.5f, 0.62f, 1f), Shader.TileMode.CLAMP,
         )
-        sunClip.reset()
-        sunClip.addArc(RectF(vp - SUN_R, HZ - SUN_R, vp + SUN_R, HZ + SUN_R), 180f, 180f)
-        sunClip.close()
     }
 
     // ================= сцена =================
 
-    private fun drawScene(c: Canvas, f: FrameData, vp: Float, ext: Float, dh: Float) {
+    private fun drawScene(c: Canvas, f: FrameData, vp: Float, yaw: Float, ext: Float, dh: Float) {
         val t = f.t
-        val xl = -ext - 200f
-        val xr = W + ext + 200f
+        val xl = -ext - 400f
+        val xr = W + ext + 400f
+        val roll = 4f * sin(t * 0.09f) + 1.5f * sin(t * 0.23f)      // крен: горизонт покачивается
+        val pitch = 14f * sin(t * 0.07f)                           // тангаж: горизонт чуть ходит вверх-вниз
+
+        c.save()
+        c.rotate(roll, vp, HZ + pitch)
+        c.translate(0f, pitch)
 
         // небо у горизонта
         c.drawRect(xl, 300f, xr, HZ, skyP)
 
-        // свечение за солнцем
-        bloomP.alpha = (200 + 55 * sin(t * 0.9f)).roundToInt().coerceIn(0, 255)
-        c.drawCircle(vp, HZ, 330f, bloomP)
-
-        // полосатое солнце, полосы ползут вниз
-        c.save()
-        c.clipPath(sunClip)
-        sunP.alpha = 210
-        val off = (t * 5.6f) % 28f
-        var y = HZ - SUN_R - 28f + off
-        while (y < HZ) {
-            c.drawRect(vp - SUN_R, max(y, HZ - SUN_R), vp + SUN_R, min(y + 20f, HZ), sunP)
-            y += 28f
-        }
-        c.restore()
-
-        // рельеф
-        buildTerrain(t, f.cfg.yawDeg)
+        // рельеф: летим вперёд, камера качается по высоте
+        buildTerrain(t, yaw)
         var nr = 0; var nc = 0; var nd = 0
         for (r in 0 until rows) for (k in 0 until cols - 1) {
             if (gok[r][k] && gok[r][k + 1]) {
@@ -352,49 +319,50 @@ class CyberRenderer {
         // дымка у горизонта прячет мельтешение дальних треугольников
         c.drawRect(xl, HZ, xr, HZ + FOG_H, fogP)
 
-        // горизонт: три слоя свечения
+        // горизонт: три слоя свечения, яркое пятно — в точке схода
         val pulse = 0.8f + 0.2f * sin(t * 1.05f)
         fill.shader = null
         fill.color = withA(accent, 0.10f * pulse); c.drawRect(xl, HZ - 13f, xr, HZ + 13f, fill)
         fill.color = withA(accent, 0.28f * pulse); c.drawRect(xl, HZ - 5f, xr, HZ + 5f, fill)
         horizonP.alpha = (255 * pulse).roundToInt().coerceIn(0, 255)
-        c.drawRect(xl, HZ - 1.5f, xr, HZ + 1.5f, horizonP)
+        c.save()
+        c.translate(vp, 0f)
+        c.drawRect(xl - vp, HZ - 1.5f, xr - vp, HZ + 1.5f, horizonP)
+        c.restore()
 
-
-        // частицы поднимаются из точки схода
-        for (p in 0 until 12) {
-            val dur = 5f + (p % 4) * 1.3f
-            val ph = ((t + p * 0.8f) / dur) % 1f
-            val a = if (ph < 0.15f) ph / 0.15f else 1f - (ph - 0.15f) / 0.85f
-            val x = vp + PARTICLE_X[p]
-            val yy = 504f - (p % 3) * 6f - ph * 240f
-            fill.color = withA(accent, 0.35f * a); c.drawRect(x - 3f, yy - 3f, x + 6f, yy + 6f, fill)
-            fill.color = withA(Color.WHITE, a); c.drawRect(x, yy, x + 3f, yy + 3f, fill)
-        }
-
-        // затемнение снизу — спокойный фон под иконками
-        // затемнение снизу рисуется отдельным последним слоем — см. drawBottomShade
+        c.restore()
     }
 
+    /**
+     * Сетка в мире неподвижна, камера летит вперёд: ряды равномерно по глубине,
+     * сдвигаются на пройденный путь; волны рельефа тоже живут во времени.
+     */
     private fun buildTerrain(t: Float, yawDeg: Float) {
         val a = Math.toRadians(yawDeg.toDouble())
         val ca = cos(a).toFloat(); val sa = sin(a).toFloat()
         val zN = 0.9f; val zF = 26f
+        val dz = (zF - zN) / (rows - 1)
+        val travel = t * 1.1f                                      // скорость полёта, ед./с
+        val shift = travel % dz
+        val strafe = 3f * sin(t * 0.04f)                           // плавный снос вбок
+        val camH = CAM + 0.12f * sin(t * 0.19f)                    // высота камеры дышит
         for (r in 0 until rows) {
-            val z = zN * (zF / zN).pow(r / (rows - 1f))
-            val amp = 0.25f + 0.08f * z
+            val z = zN + r * dz - shift
+            val wz = z + travel                                    // мировая глубина точки
+            val amp = 0.32f + 0.07f * z
             for (k in 0 until cols) {
                 val x = -26f + k * 0.8f
-                val hgt = 0.18f * sin(0.55f * x + 0.35f * z + 0.25f * t) +
-                    0.14f * sin(0.9f * z - 0.75f * x - 0.18f * t) +
-                    0.08f * sin(1.6f * x + 1.1f * z + 0.33f * t)
+                val wx = x + strafe
+                val hgt = 0.26f * sin(0.45f * wx + 0.3f * wz + 0.55f * t) +
+                    0.18f * sin(0.8f * wz - 0.6f * wx - 0.4f * t) +
+                    0.09f * sin(1.5f * wx + 1.2f * wz + 0.9f * t)
                 val yv = hgt * amp
                 val xc = x * ca - z * sa
                 val zc = x * sa + z * ca
                 if (zc < 0.7f) { gok[r][k] = false; continue }
                 val sx = CX + xc * F / zc
-                val sy = HZ + (CAM - yv) * F / zc
-                gok[r][k] = sx > -900f && sx < 2200f && sy < 1500f
+                val sy = HZ + (camH - yv) * F / zc
+                gok[r][k] = sx > -1100f && sx < 2400f && sy < 1600f
                 gx[r][k] = sx; gy[r][k] = sy
             }
         }
@@ -1114,10 +1082,8 @@ class CyberRenderer {
         private const val HZ = 519f
         private const val F = 600f
         private const val CAM = 0.5617f
-        private const val SUN_R = 175f
         private const val FOG_H = 90f
         private const val NUM_PUNCT = ".,:%°+−-/"
-        private val PARTICLE_X = floatArrayOf(-73f, -47f, -25f, -7f, 7f, 21f, 39f, 61f, -35f, 31f, -53f, 15f)
 
         fun withA(c: Int, a: Float): Int =
             Color.argb((a.coerceIn(0f, 1f) * Color.alpha(c)).roundToInt(), Color.red(c), Color.green(c), Color.blue(c))
