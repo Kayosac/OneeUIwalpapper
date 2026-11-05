@@ -7,11 +7,13 @@ InfoWall push — отправляет лимиты Claude Code и Codex на li
   * Codex       — последнее событие token_count.rate_limits из ~/.codex/sessions.
 
 Команды:
-  push.py install --url URL --token WRITE_TOKEN   установить себя и прописать хуки
+  push.py install [--url URL --token WRITE_TOKEN] установить себя, хуки и фоновый опрос
+                                                  (без аргументов — берёт сохранённые)
   push.py claude [--chain CMD]                    statusLine для Claude Code
   push.py codex [-- CMD ...]                      notify для Codex
   push.py test [--clear]                          тестовые карточки (или убрать их)
   push.py doctor                                  проверить всю цепочку
+  push.py scan                                    разово прочитать лог Codex и отправить
   push.py uninstall                               убрать хуки
 
 Только стандартная библиотека Python 3.8+.
@@ -293,6 +295,20 @@ def codex_windows():
     return []
 
 
+def cmd_scan(_args):
+    """Периодический опрос лога Codex (работает и для приложения Codex, без хуков)."""
+    w = codex_windows()
+    mark_seen("scan", found=bool(w))
+    if not w:
+        return
+    payload = {"source": "codex", "label": "Codex", "windows": w}
+    if should_send("codex", payload):
+        try:
+            post(payload)
+        except Exception:
+            pass
+
+
 def cmd_codex(args):
     # Codex передаёт JSON события последним аргументом; нам он не нужен —
     # данные о лимитах берём из лога, чуть подождав, пока он допишется.
@@ -359,8 +375,7 @@ def install_codex():
         if MARK in line:
             print("  Codex: хук уже стоит")
             return
-        print("  Codex: в config.toml уже есть notify — не трогаю. Чтобы оставить свой и добавить InfoWall:")
-        print(f'    notify = ["{PY}", "{INSTALLED}", "codex", "--", <твоя команда как массив строк>]')
+        print("  Codex: в config.toml уже есть свой notify — не трогаю (лимиты возьмёт фоновый опрос)")
         return
     if text:
         shutil.copy2(CODEX_CONFIG, CODEX_CONFIG + ".infowall-backup")
@@ -371,6 +386,48 @@ def install_codex():
     print(f"  Codex: notify прописан в {CODEX_CONFIG}")
 
 
+AGENT_ID = "com.kayo.infowall.scan"
+AGENT_PLIST = os.path.join(HOME, "Library", "LaunchAgents", AGENT_ID + ".plist")
+
+
+def install_agent():
+    """macOS: раз в минуту запускать `push.py scan` — без хуков в Codex."""
+    if sys.platform != "darwin":
+        print("  Фоновый опрос: только для macOS — пропускаю (хватит notify)")
+        return
+    if not os.path.isdir(os.path.join(HOME, ".codex")):
+        return
+    import plistlib
+    os.makedirs(os.path.dirname(AGENT_PLIST), exist_ok=True)
+    with open(AGENT_PLIST, "wb") as f:
+        plistlib.dump({
+            "Label": AGENT_ID,
+            "ProgramArguments": [PY, INSTALLED, "scan"],
+            "StartInterval": 60,
+            "RunAtLoad": True,
+            "ProcessType": "Background",
+            "LowPriorityIO": True,
+            "StandardErrorPath": os.path.join(BASE, "scan.log"),
+        }, f)
+    uid = str(os.getuid())
+    subprocess.run(["launchctl", "bootout", f"gui/{uid}/{AGENT_ID}"],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    r = subprocess.run(["launchctl", "bootstrap", f"gui/{uid}", AGENT_PLIST],
+                       capture_output=True, text=True)
+    if r.returncode == 0:
+        print("  Codex: фоновый опрос лога раз в минуту включён (работает и с приложением Codex)")
+    else:
+        print(f"  Codex: не смог включить фоновый опрос: {r.stderr.strip() or r.returncode}")
+
+
+def uninstall_agent():
+    if sys.platform == "darwin" and os.path.exists(AGENT_PLIST):
+        subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}/{AGENT_ID}"],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        os.remove(AGENT_PLIST)
+        print("Фоновый опрос Codex: выключен")
+
+
 def cmd_install(args):
     url = token = None
     it = iter(args)
@@ -379,6 +436,9 @@ def cmd_install(args):
             url = next(it, None)
         elif a == "--token":
             token = next(it, None)
+    if not url or not token:
+        saved_url, saved_token = load_config()
+        url, token = url or saved_url, token or saved_token
     if not url or not token:
         sys.exit("usage: push.py install --url https://host:port --token WRITE_TOKEN")
 
@@ -392,6 +452,7 @@ def cmd_install(args):
 
     install_claude()
     install_codex()
+    install_agent()
 
     try:
         # пустой список окон = «удалить источник», т.е. безвредная проверка
@@ -403,6 +464,7 @@ def cmd_install(args):
 
 
 def cmd_uninstall(_args):
+    uninstall_agent()
     if os.path.exists(CLAUDE_SETTINGS):
         with open(CLAUDE_SETTINGS, encoding="utf-8") as f:
             s = json.load(f)
@@ -477,8 +539,8 @@ def cmd_doctor(_args):
     print(f"{ok if MARK in cmd else bad} Claude Code: statusLine {'прописан' if MARK in cmd else 'НЕ прописан'}")
     seen = read_seen("claude")
     if not seen:
-        print(f"{bad} Claude Code: статус-строка ни разу не вызывала скрипт "
-              "(перезапусти claude в терминале и отправь сообщение; в приложении Claude Desktop это не работает)")
+        print(f"{bad} Claude Code: статус-строка ещё не вызывала скрипт — открой claude в терминале "
+              "и отправь сообщение (приложение Claude и claude.ai лимиты не отдают)")
     else:
         print(f"{ok} Claude Code: вызывал скрипт {_ago(seen['at'])}, версия {seen.get('version') or '?'}")
         if seen.get("has_rate_limits"):
@@ -496,10 +558,17 @@ def cmd_doctor(_args):
         except OSError:
             pass
         hooked = any(NOTIFY_RE.match(l) and MARK in l for l in txt.splitlines())
-        print(f"{ok if hooked else bad} Codex: notify {'прописан' if hooked else 'НЕ прописан'}")
+        scan = read_seen("scan")
+        if sys.platform == "darwin":
+            agent = os.path.exists(AGENT_PLIST)
+            print(f"{ok if agent else bad} Codex: фоновый опрос " +
+                  (f"включён, последний запуск {_ago(scan['at'])}" if agent and scan else
+                   "включён, ещё не запускался" if agent else
+                   "выключен — запусти: python3 ~/.infowall/push.py install"))
         seen = read_seen("codex")
-        print(f"{ok if seen else bad} Codex: хук " + (f"вызывался {_ago(seen['at'])}" if seen else
-              "ни разу не вызывался (перезапусти codex и отправь сообщение)"))
+        if hooked or seen:
+            print(f"{ok if seen else '–'} Codex CLI: notify " +
+                  (f"вызывался {_ago(seen['at'])}" if seen else "прописан, ещё не вызывался"))
         rolls = _newest_rollouts(1)
         print(f"{ok if rolls else bad} Codex: лог сессий " + (_ago(os.path.getmtime(rolls[0])) if rolls else "не найден"))
         w = codex_windows()
@@ -528,6 +597,7 @@ def main():
         "uninstall": cmd_uninstall,
         "test": cmd_test,
         "doctor": cmd_doctor,
+        "scan": cmd_scan,
         "_send": cmd_send,
     }.get(cmd, lambda _a: sys.exit(f"неизвестная команда: {cmd}"))(args)
 
