@@ -231,6 +231,7 @@ open class InfoWallpaperService : WallpaperService() {
                 when (val hit = renderer.appHit(tx, ty)) {
                     "clock" -> { openClock(); return@run }
                     "calendar" -> { openCalendar(); return@run }
+                    "memory" -> { openMemory(); return@run }
                     "goals" -> { launchFirst(android.content.Intent(applicationContext, GoalsActivity::class.java)); return@run }
                     "update" -> { launchFirst(android.content.Intent(applicationContext, SettingsActivity::class.java)); return@run }
                     "steamnext" -> { refreshSteam(); return@run }
@@ -429,6 +430,25 @@ open class InfoWallpaperService : WallpaperService() {
             android.content.Intent.makeMainSelectorActivity(android.content.Intent.ACTION_MAIN, android.content.Intent.CATEGORY_APP_CALENDAR),
             mainOf("com.samsung.android.calendar"),
         )
+
+        /**
+         * Экран памяти «Обслуживания устройства» Samsung: там одна кнопка «Очистить».
+         * Чужие процессы обычному приложению закрывать нельзя (с Android 14), поэтому только ярлык.
+         * Пробуем известные адреса экрана памяти, затем главный экран «Обслуживания», затем настройки.
+         */
+        private fun openMemory() {
+            val lool = "com.samsung.android.lool"
+            fun cmp(cls: String) = android.content.Intent().setClassName(lool, cls)
+            launchFirst(
+                android.content.Intent("com.samsung.android.sm.ACTION_RAM"),
+                cmp("com.samsung.android.sm.ui.ram.RamActivity"),
+                cmp("com.samsung.android.sm.ram.ui.RamActivity"),
+                android.content.Intent("com.samsung.android.sm.ACTION_DASHBOARD"),
+                cmp("com.samsung.android.sm.ui.dashboard.SmartManagerDashBoardActivity"),
+                mainOf(lool),
+                android.content.Intent(android.provider.Settings.ACTION_SETTINGS),
+            )
+        }
 
         private fun openClock() = launchFirst(
             mainOf("com.sec.android.app.clockpackage"),           // Часы Samsung

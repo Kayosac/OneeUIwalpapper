@@ -91,6 +91,7 @@ class CyberRenderer {
     private val clockOnScreen = RectF()
     private val calendarOnScreen = RectF()
     private val goalsOnScreen = RectF()
+    private val memOnScreen = RectF()       // блок «Память» → экран памяти в «Обслуживании устройства»
     private val updOnScreen = RectF()
     private val srvRects = ArrayList<RectF>()
 
@@ -100,6 +101,7 @@ class CyberRenderer {
         !clockOnScreen.isEmpty && clockOnScreen.contains(x, y) -> "clock"
         !calendarOnScreen.isEmpty && calendarOnScreen.contains(x, y) -> "calendar"
         !goalsOnScreen.isEmpty && goalsOnScreen.contains(x, y) -> "goals"
+        !memOnScreen.isEmpty && memOnScreen.contains(x, y) -> "memory"
         !steamNextRect.isEmpty && steamNextRect.contains(x, y) -> "steamnext"
         else -> steamRows.indices.firstOrNull { steamRows[it].contains(x, y) }?.let { "steam:${steamIds[it]}" }
             ?: srvRects.indices.firstOrNull { srvRects[it].contains(x, y) }?.let { "srv:$it" }
@@ -249,7 +251,7 @@ class CyberRenderer {
         drawScene(c, f, vp, yawNow, ext, dh)
         if (f.lock) {
             // экран блокировки: только сцена — ни часов, ни плашек, ни зон тапа
-            clockOnScreen.setEmpty(); calendarOnScreen.setEmpty(); goalsOnScreen.setEmpty(); updOnScreen.setEmpty()
+            clockOnScreen.setEmpty(); calendarOnScreen.setEmpty(); goalsOnScreen.setEmpty(); updOnScreen.setEmpty(); memOnScreen.setEmpty()
             converterOnScreen.setEmpty(); padOnScreen.setEmpty(); steamRows.clear(); steamNextRect.setEmpty(); srvRects.clear()
             c.restore()
             return
@@ -509,6 +511,7 @@ class CyberRenderer {
         caption(c, "ПАМЯТЬ", ax, 122f)
         memRow(c, "RAM", st.ramUsed, st.ramTotal, ax, aEnd, 150f)
         memRow(c, "ROM", st.romUsed, st.romTotal, ax, aEnd, 178f)
+        toScreen(memOnScreen, x0, 102f, x0 + colW + gap / 2f, 205f, f.cfg.uiScale)
 
         // --- сеть: графики ---
         val bx = xB + 16f
