@@ -37,6 +37,7 @@ class SettingsActivity : Activity() {
     private lateinit var accent: EditText
     private lateinit var fps: EditText
     private lateinit var glow: EditText
+    private lateinit var uiScale: EditText
     private lateinit var yaw: EditText
     private lateinit var zones: EditText
     private lateinit var swWeather: Switch
@@ -75,6 +76,8 @@ class SettingsActivity : Activity() {
         fps = field("20", cfg.fps.toString(), InputType.TYPE_CLASS_NUMBER); col += fps
         col += label("Свечение (bloom): 0 — выкл, 1 — норма, до 2 — сильнее")
         glow = field("1", trim(cfg.glow), InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL); col += glow
+        col += label("Масштаб интерфейса: 0.6–1 (0.8 — как в макете)")
+        uiScale = field("0.8", trim(cfg.uiScale), InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL); col += uiScale
         col += label("Поворот камеры, ° (0–34)")
         yaw = field("24", cfg.yawDeg.toInt().toString(), InputType.TYPE_CLASS_NUMBER); col += yaw
 
@@ -93,7 +96,7 @@ class SettingsActivity : Activity() {
 
         // --- часы ---
         col += header("Часовые пояса")
-        col += label("До трёх через запятую: метка=пояс")
+        col += label("До трёх через запятую: метка=пояс (метки латиницей — так их рисует шрифт цифр)")
         zones = field(Prefs.DEFAULT_ZONES, p.getString(Prefs.K_ZONES, Prefs.DEFAULT_ZONES).orEmpty(), InputType.TYPE_CLASS_TEXT)
         col += zones
 
@@ -154,7 +157,7 @@ class SettingsActivity : Activity() {
     // ---------- сохранение ----------
 
     private fun selectedFont(): FontPreset =
-        fontIds.entries.firstOrNull { it.value == fontGroup.checkedRadioButtonId }?.key ?: FontPreset.DOTO_GEIST
+        fontIds.entries.firstOrNull { it.value == fontGroup.checkedRadioButtonId }?.key ?: FontPreset.FINAL
 
     private fun pickFont() {
         val i = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
@@ -209,6 +212,7 @@ class SettingsActivity : Activity() {
         Prefs.get(this).edit()
             .putString(Prefs.K_ACCENT, color)
             .putInt(Prefs.K_FPS, (fps.text.toString().toIntOrNull() ?: 20).coerceIn(0, 30))
+            .putFloat(Prefs.K_UI_SCALE, (uiScale.text.toString().replace(',', '.').toFloatOrNull() ?: 0.8f).coerceIn(0.6f, 1f))
             .putFloat(Prefs.K_GLOW, (glow.text.toString().replace(',', '.').toFloatOrNull() ?: 1f).coerceIn(0f, 2f))
             .putFloat(Prefs.K_YAW, (yaw.text.toString().toFloatOrNull() ?: 24f).coerceIn(0f, 34f))
             .putString(Prefs.K_ZONES, zones.text.toString().trim())

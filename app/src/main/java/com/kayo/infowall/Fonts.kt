@@ -15,7 +15,11 @@ enum class FontPreset(
     val numAxes: String?,
     val label: String?,
     val labelAxes: String?,
+    val clock: String? = num,
+    val clockAxes: String? = numAxes,
 ) {
+    FINAL("Итог · часы Sixtyfour, цифры Bitcount, текст Days One",
+        "bitcount.ttf", "'wght' 400", "daysone.ttf", null, "sixtyfour.ttf", null),
     SYSTEM("Системный моноширинный", null, null, null, null),
     DOTO_HANDJET("Точечный · Doto + Handjet", "doto.ttf", "'wght' 800", "handjet.ttf", "'wght' 400"),
     BITCOUNT_GEIST("Nothing 1 · Bitcount Grid + Geist Mono", "bitcount.ttf", "'wght' 400", "geistmono.ttf", "'wght' 400"),
@@ -31,15 +35,21 @@ object Fonts {
     private const val CUSTOM_FILE = "custom_font"
     private val fallback: Typeface = Typeface.create(Typeface.MONOSPACE, Typeface.NORMAL)
 
-    /** (цифры, подписи) для набора; при любой ошибке — системный моноширинный. */
-    fun load(ctx: Context, preset: FontPreset): Pair<Typeface, Typeface> = when (preset) {
-        FontPreset.SYSTEM -> fallback to fallback
+    class Set(val clock: Typeface, val num: Typeface, val label: Typeface)
+
+    /** Циферблат, мелкие цифры и подписи; при любой ошибке — системный моноширинный. */
+    fun load(ctx: Context, preset: FontPreset): Set = when (preset) {
+        FontPreset.SYSTEM -> Set(fallback, fallback, fallback)
         FontPreset.CUSTOM -> {
             val f = File(ctx.filesDir, CUSTOM_FILE)
-            val tf = if (f.exists()) runCatching { Typeface.Builder(f).build() }.getOrNull() else null
-            (tf ?: fallback) to (tf ?: fallback)
+            val tf = (if (f.exists()) runCatching { Typeface.Builder(f).build() }.getOrNull() else null) ?: fallback
+            Set(tf, tf, tf)
         }
-        else -> asset(ctx, preset.num, preset.numAxes) to asset(ctx, preset.label, preset.labelAxes)
+        else -> Set(
+            asset(ctx, preset.clock, preset.clockAxes),
+            asset(ctx, preset.num, preset.numAxes),
+            asset(ctx, preset.label, preset.labelAxes),
+        )
     }
 
     private fun asset(ctx: Context, name: String?, axes: String?): Typeface {

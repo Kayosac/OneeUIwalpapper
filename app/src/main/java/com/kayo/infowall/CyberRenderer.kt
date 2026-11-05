@@ -52,11 +52,16 @@ class CyberRenderer {
 
     // ---------- кисти ----------
     private val mono = Typeface.create(Typeface.MONOSPACE, Typeface.NORMAL)
+    private var clockFace: Typeface = mono
     private var numFace: Typeface = mono
     private var labelFace: Typeface = mono
 
-    /** Шрифт цифр (часы, значения) и шрифт подписей (кириллица). */
-    fun setFonts(num: Typeface, label: Typeface) {
+    // правый край интерфейса в координатах слоя (слой масштабируется на uiScale)
+    private var uiR = 1232f
+
+    /** Циферблат, мелкие цифры (значения, пояса) и подписи (кириллица). */
+    fun setFonts(clock: Typeface, num: Typeface, label: Typeface) {
+        clockFace = clock
         numFace = num
         labelFace = label
     }
@@ -146,9 +151,15 @@ class CyberRenderer {
 
         ensureShaders(vp, dh, ext)
         drawScene(c, f, vp, ext, dh)
+        // интерфейс мельче сцены: слой рисуется в увеличенных координатах и сжимается
+        val ui = cfg.uiScale
+        c.save()
+        c.scale(ui, ui)
+        uiR = W / ui - 48f
         drawHud(c, f)
         drawTicker(c, f)
         drawWeatherAndCalendar(c, f)
+        c.restore()
 
         c.restore()
     }
@@ -386,7 +397,7 @@ class CyberRenderer {
 
     private fun drawHud(c: Canvas, f: FrameData) {
         // уголки рамки
-        val l = 48f; val tp = 22f; val r = 1232f; val b = 226f; val k = 22f
+        val l = 48f; val tp = 22f; val r = uiR; val b = 226f; val k = 22f
         stroke.shader = null
         line(withA(accent, 0.35f), 6f)
         corners(c, l, tp, r, b, k)
@@ -408,12 +419,11 @@ class CyberRenderer {
 
     private fun drawClock(c: Canvas, f: FrameData) {
         val x = 78f
-        val base = 150f
-        text.typeface = numFace
-        text.textSize = 124f
+        val base = 134f
+        text.typeface = clockFace
+        text.textSize = 86f
         text.letterSpacing = 0f
         val full = "$hh:$mm"
-        val fullW = text.measureText(full)
 
         // мягкий поворот: правый край ближе к зрителю
         c.save()
@@ -422,8 +432,8 @@ class CyberRenderer {
         camera.rotateY(16f)
         camera.getMatrix(matrix)
         camera.restore()
-        matrix.preTranslate(-x, -(base - 50f))
-        matrix.postTranslate(x, base - 50f)
+        matrix.preTranslate(-x, -(base - 38f))
+        matrix.postTranslate(x, base - 38f)
         c.concat(matrix)
 
         // объём: слои уходят вправо и темнеют
@@ -443,76 +453,83 @@ class CyberRenderer {
         c.drawText(mm, x + hhW + colonW, base, text)
         text.clearShadowLayer()
         c.restore()
-        if (fullW < 0) return
 
-        // часовые пояса
-        var zx = 80f
-        val zy = 198f
+        // часовые пояса: метка и время одним шрифтом и размером
+        var zx = 82f
+        val zy = 190f
+        text.typeface = numFace; text.textSize = 24f; text.letterSpacing = 0f
         for ((lab, time) in zoneTimes) {
-            text.typeface = labelFace; text.textSize = 11f; text.letterSpacing = 0.18f; text.color = label
+            text.color = label
             c.drawText(lab, zx, zy, text)
             zx += text.measureText(lab) + 8f
-            text.typeface = numFace; text.textSize = 24f; text.letterSpacing = 0f; text.color = accent
+            text.color = accent
             text.setShadowLayer(10f, 0f, 0f, withA(accent, 0.65f))
             c.drawText(time, zx, zy, text)
             text.clearShadowLayer()
-            zx += text.measureText(time) + 22f
+            zx += text.measureText(time) + 24f
         }
     }
 
     private fun drawMetrics(c: Canvas, f: FrameData) {
         val st = f.stats
-        val cols = floatArrayOf(516f, 700f, 944f)
-        val ends = floatArrayOf(676f, 920f, 1204f)
-        for (i in 0 until 3) {
-            fill.shader = null
-            fill.color = withA(accent, 0.32f)
-            c.drawRect(cols[i], 82f, cols[i] + 1f, 172f, fill)
-        }
+        // две колонки справа от часов: [батарея + память] и [сеть]
+        val x0 = 78f + 480f + 32f
+        val x1 = uiR - 28f
+        val gap = 24f
+        val colA = (x1 - x0 - gap) / 2.12f
+        val xB = x0 + colA + gap
+        fill.shader = null
+        fill.color = withA(accent, 0.32f)
+        c.drawRect(x0, 50f, x0 + 1f, 198f, fill)
+        c.drawRect(xB, 50f, xB + 1f, 198f, fill)
 
         // --- батарея ---
-        var x = cols[0] + 16f
-        caption(c, "БАТАРЕЯ", x, 98f)
+        val ax = x0 + 16f
+        val aEnd = x0 + colA
+        caption(c, "БАТАРЕЯ", ax, 68f)
         val pct = st.batteryPct
         val batText = buildString {
             append(if (pct >= 0) "$pct%" else "—")
             st.batteryTemp?.let { append(" $it°") }
-            if (st.charging) append(" ⚡")
+            if (st.charging) append(" +")
         }
-        value(c, batText, x, 136f, 30f)
+        text.typeface = numFace; text.textSize = 22f; text.letterSpacing = 0f; text.color = accent
+        text.setShadowLayer(10f, 0f, 0f, withA(accent, 0.65f))
+        c.drawText(batText, aEnd - text.measureText(batText), 70f, text)
+        text.clearShadowLayer()
         val on = if (pct >= 0) (pct + 5) / 10 else 0
+        val segW = (aEnd - ax - 27f) / 10f
         for (k in 0 until 10) {
-            val sx = x + k * 17f
+            val sx = ax + k * (segW + 3f)
             fill.color = if (k < on) accent else withA(accent, 0.14f)
             if (k < on) fill.setShadowLayer(6f, 0f, 0f, withA(accent, 0.8f)) else fill.clearShadowLayer()
-            c.drawRect(sx, 152f, sx + 14f, 160f, fill)
+            c.drawRect(sx, 80f, sx + segW, 88f, fill)
         }
         fill.clearShadowLayer()
 
         // --- память: RAM и ROM в одной сетке ---
-        x = cols[1] + 16f
-        caption(c, "ПАМЯТЬ", x, 98f)
-        memRow(c, "RAM", st.ramUsed, st.ramTotal, x, ends[1], 128f)
-        memRow(c, "ROM", st.romUsed, st.romTotal, x, ends[1], 158f)
+        caption(c, "ПАМЯТЬ", ax, 122f)
+        memRow(c, "RAM", st.ramUsed, st.ramTotal, ax, aEnd, 150f)
+        memRow(c, "ROM", st.romUsed, st.romTotal, ax, aEnd, 178f)
 
         // --- сеть: графики ---
-        x = cols[2] + 16f
-        caption(c, "СЕТЬ", x, 98f)
-        netRow(c, "↓", st.rxNow, st.rxHist, st.histCount, x, ends[2], 132f)
-        netRow(c, "↑", st.txNow, st.txHist, st.histCount, x, ends[2], 168f)
+        val bx = xB + 16f
+        caption(c, "СЕТЬ", bx, 68f)
+        netRow(c, "↓", st.rxNow, st.rxHist, st.histCount, bx, x1, 116f)
+        netRow(c, "↑", st.txNow, st.txHist, st.histCount, bx, x1, 172f)
     }
 
     private fun memRow(c: Canvas, lab: String, used: Long, total: Long, x: Float, end: Float, y: Float) {
-        text.typeface = labelFace; text.textSize = 11f; text.letterSpacing = 0.18f; text.color = label
+        text.typeface = labelFace; text.textSize = 10f; text.letterSpacing = 0.18f; text.color = label
         c.drawText(lab, x, y, text)
         val v = if (total > 0) "${gb(used)}/${gb(total)}" else "—"
-        text.typeface = numFace; text.textSize = 16f; text.letterSpacing = 0f; text.color = accent
+        text.typeface = numFace; text.textSize = 15f; text.letterSpacing = 0f; text.color = accent
         val vw = text.measureText(v)
         text.setShadowLayer(8f, 0f, 0f, withA(accent, 0.6f))
         c.drawText(v, end - vw, y, text)
         text.clearShadowLayer()
-        val bx = x + 48f
-        val bw = max(20f, end - vw - 12f - bx)
+        val bx = x + 44f
+        val bw = max(20f, end - vw - 10f - bx)
         fill.shader = null
         fill.color = withA(accent, 0.14f)
         c.drawRect(bx, y - 6f, bx + bw, y - 2f, fill)
@@ -537,7 +554,7 @@ class CyberRenderer {
         c.drawText("Мбит/с", x + 18f + vw, y, text)
 
         // график
-        val gx0 = x + 108f
+        val gx0 = x + 138f
         val gw = end - gx0
         if (gw < 20f) return
         val top = y - 26f
@@ -575,8 +592,8 @@ class CyberRenderer {
         val top = 240f; val bottom = 274f
         fill.shader = null
         fill.color = withA(accent, 0.32f)
-        c.drawRect(48f, top, 1232f, top + 1f, fill)
-        c.drawRect(48f, bottom - 1f, 1232f, bottom, fill)
+        c.drawRect(48f, top, uiR, top + 1f, fill)
+        c.drawRect(48f, bottom - 1f, uiR, bottom, fill)
 
         val items = f.remote?.items.orEmpty()
         val msg = when {
@@ -589,10 +606,10 @@ class CyberRenderer {
         val tw = text.measureText(msg)
         if (tw <= 0f) return
         c.save()
-        c.clipRect(48f, top + 1f, 1232f, bottom - 1f)
+        c.clipRect(48f, top + 1f, uiR, bottom - 1f)
         text.setShadowLayer(8f, 0f, 0f, withA(accent, 0.6f))
         var x = 48f - (f.t * 40f) % tw
-        while (x < 1232f) {
+        while (x < uiR) {
             c.drawText(msg, x, top + 22f, text)
             x += tw
         }
@@ -612,8 +629,9 @@ class CyberRenderer {
 
     private fun drawWeatherAndCalendar(c: Canvas, f: FrameData) {
         val top = 304f; val bottom = 466f
-        if (f.cfg.weather) drawWeather(c, f, 786f, top, 1054f, bottom)
-        drawCalendar(c, 1064f, top, 1232f, bottom)
+        val wl = uiR - 446f
+        if (f.cfg.weather) drawWeather(c, f, wl, top, wl + 268f, bottom)
+        drawCalendar(c, wl + 278f, top, uiR, bottom)
     }
 
     private fun drawWeather(c: Canvas, f: FrameData, l: Float, t: Float, r: Float, b: Float) {
@@ -727,7 +745,7 @@ class CyberRenderer {
     // ================= утилиты =================
 
     private fun caption(c: Canvas, s: String, x: Float, y: Float) {
-        text.typeface = labelFace; text.textSize = 12f; text.letterSpacing = 0.25f; text.color = label
+        text.typeface = labelFace; text.textSize = 11f; text.letterSpacing = 0.25f; text.color = label
         c.drawText(s, x, y, text)
         text.letterSpacing = 0f
     }

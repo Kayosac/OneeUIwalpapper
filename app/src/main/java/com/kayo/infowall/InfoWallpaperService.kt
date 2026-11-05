@@ -211,8 +211,8 @@ class InfoWallpaperService : WallpaperService() {
             val key = "${cfg.font}|${cfg.fontVersion}"
             if (key == fontKey) return
             fontKey = key
-            val (num, label) = Fonts.load(applicationContext, cfg.font)
-            renderer.setFonts(num, label)
+            val set = Fonts.load(applicationContext, cfg.font)
+            renderer.setFonts(set.clock, set.num, set.label)
         }
 
         private fun submit(block: () -> Unit) {

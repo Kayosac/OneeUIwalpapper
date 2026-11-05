@@ -32,6 +32,7 @@ data class Config(
     val accent: Int,
     val fps: Int,
     val glow: Float,
+    val uiScale: Float,
     val font: FontPreset,
     val fontVersion: Int,
     val yawDeg: Float,
@@ -55,6 +56,7 @@ object Prefs {
     const val K_ACCENT = "accent"
     const val K_FPS = "fps"
     const val K_GLOW = "glow"
+    const val K_UI_SCALE = "ui_scale"
     const val K_FONT = "font"
     const val K_FONT_VER = "font_ver"
     const val K_YAW = "yaw"
@@ -71,7 +73,8 @@ object Prefs {
 
     const val MIN_INTERVAL = 15
     const val DEFAULT_ACCENT = "#00E5FF"
-    const val DEFAULT_ZONES = "МСК=Europe/Moscow, НСК=Asia/Novosibirsk"
+    const val DEFAULT_ZONES = "MOS=Europe/Moscow, NOV=Asia/Novosibirsk"
+    private const val OLD_DEFAULT_ZONES = "МСК=Europe/Moscow, НСК=Asia/Novosibirsk"
 
     fun get(ctx: Context): SharedPreferences =
         ctx.applicationContext.getSharedPreferences(NAME, Context.MODE_PRIVATE)
@@ -87,10 +90,11 @@ object Prefs {
             accent = parseColor(p.getString(K_ACCENT, DEFAULT_ACCENT)),
             fps = p.getInt(K_FPS, 20).coerceIn(0, 30),
             glow = p.getFloat(K_GLOW, 1f).coerceIn(0f, 2f),
-            font = runCatching { FontPreset.valueOf(p.getString(K_FONT, "DOTO_GEIST")!!) }.getOrDefault(FontPreset.DOTO_GEIST),
+            uiScale = p.getFloat(K_UI_SCALE, 0.8f).coerceIn(0.6f, 1f),
+            font = runCatching { FontPreset.valueOf(p.getString(K_FONT, "FINAL")!!) }.getOrDefault(FontPreset.FINAL),
             fontVersion = p.getInt(K_FONT_VER, 0),
             yawDeg = p.getFloat(K_YAW, 24f).coerceIn(0f, 34f),
-            zones = parseZones(p.getString(K_ZONES, DEFAULT_ZONES).orEmpty()),
+            zones = parseZones(p.getString(K_ZONES, DEFAULT_ZONES).orEmpty().let { if (it == OLD_DEFAULT_ZONES) DEFAULT_ZONES else it }),
             weather = p.getBoolean(K_WEATHER, true),
             lat = lat,
             lon = lon,
