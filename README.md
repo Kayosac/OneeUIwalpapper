@@ -101,22 +101,30 @@ Codex ─────notify───────┘
 Лимит Claude общий с claude.ai, поэтому расход в приложении увидишь при следующем
 ответе в Claude Code. Для ChatGPT видны лимиты Codex, а не обычного чата.
 
+### Быстро: три копипаста
+1. **VPS** (по SSH): `curl -fsSL https://raw.githubusercontent.com/Kayosac/OneeUIwalpapper/main/server/setup.sh | bash`
+2. **Мак**: вставить в Терминал команду, которую напечатал шаг 1.
+3. **Планшет**: вписать в InfoWall URL и токен, которые напечатал шаг 1.
+
+Дальше — подробности для ручной настройки.
+
 ### 1. Сервер на VPS (один раз)
 ```bash
-git clone https://github.com/Kayosac/OneeUIwalpapper.git infowall
-cd infowall/server
-./setup.sh          # создаст .env с двумя токенами и поднимет Docker-контейнер
+curl -fsSL https://raw.githubusercontent.com/Kayosac/OneeUIwalpapper/main/server/setup.sh | bash
 ```
+Ставит Docker (если нет), кладёт проект в `~/infowall`, создаёт `.env` с двумя токенами,
+запускает контейнер на порту 8787 и печатает готовые команды для Мака и планшета.
 Без Docker: `INFOWALL_WRITE_TOKEN=... INFOWALL_READ_TOKEN=... python3 limits_server.py`.
 
-Сервис слушает `127.0.0.1:8787`. Наружу — через reverse proxy с HTTPS, например Caddy:
+HTTPS через reverse proxy, например Caddy:
 ```
 limits.example.com {
     reverse_proxy 127.0.0.1:8787
 }
 ```
-Без прокси замени порт в `docker-compose.yml` на `"8787:8787"` и ходи по `http://IP:8787`
-(работает, но токены идут открытым текстом).
+`setup.sh` по умолчанию открывает порт наружу (`INFOWALL_BIND=0.0.0.0` в `.env`) — работает
+сразу по `http://IP:8787`, но токены идут открытым текстом. С прокси поставь в `.env`
+`INFOWALL_BIND=127.0.0.1` и выполни `docker compose up -d`.
 
 Два токена: **WRITE** — только для клиентов, **READ** — только для обоев.
 Утечёт READ — увидят твои проценты; утечёт WRITE — смогут подменить цифры. Больше ничего.

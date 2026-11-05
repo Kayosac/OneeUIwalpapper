@@ -8,8 +8,8 @@ services:
       - infowall-data:/data
     ports:
       # Если перед сервисом стоит reverse proxy (Caddy/nginx) — оставь 127.0.0.1.
-      # Без прокси (доступ напрямую по IP:порту) — замени на "8787:8787".
-      - "127.0.0.1:8787:8787"
+      # Без прокси setup.sh ставит INFOWALL_BIND=0.0.0.0 в .env (доступ по IP:8787).
+      - "${INFOWALL_BIND:-127.0.0.1}:8787:8787"
 
 volumes:
   infowall-data:
