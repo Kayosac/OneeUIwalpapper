@@ -19,7 +19,10 @@ import android.view.SurfaceHolder
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
-class InfoWallpaperService : WallpaperService() {
+open class InfoWallpaperService : WallpaperService() {
+
+    /** Вариант для экрана блокировки: только сцена, без данных, виджетов и касаний. */
+    protected open val lockMode = false
 
     override fun onCreateEngine(): Engine = CyberEngine()
 
@@ -92,7 +95,7 @@ class InfoWallpaperService : WallpaperService() {
             stats = Stats(applicationContext)
             cfg = Prefs.load(applicationContext)
             Prefs.get(applicationContext).registerOnSharedPreferenceChangeListener(this)
-            setTouchEventsEnabled(true)   // касания, которые лаунчер пропускает к обоям
+            setTouchEventsEnabled(!lockMode)   // касания, которые лаунчер пропускает к обоям
             loadFonts()
             // остатки от 3D-моделей прошлых версий
             runCatching {
@@ -168,7 +171,7 @@ class InfoWallpaperService : WallpaperService() {
          */
         override fun onCommand(action: String?, x: Int, y: Int, z: Int, extras: Bundle?, resultRequested: Boolean): Bundle? {
             // запасной путь: лаунчеры, которые шлют COMMAND_TAP; если тот же тап уже поймали касанием — пропускаем
-            if (action == WallpaperManager.COMMAND_TAP && SystemClock.elapsedRealtime() - lastTouchTapAt > 600) {
+            if (!lockMode && action == WallpaperManager.COMMAND_TAP && SystemClock.elapsedRealtime() - lastTouchTapAt > 600) {
                 handleTap(x.toFloat(), y.toFloat())
             }
             return null
@@ -183,6 +186,7 @@ class InfoWallpaperService : WallpaperService() {
         private var lastTouchTapAt = 0L
 
         override fun onTouchEvent(e: android.view.MotionEvent) {
+            if (lockMode) { super.onTouchEvent(e); return }
             val slop = 14f * resources.displayMetrics.density
             when (e.actionMasked) {
                 android.view.MotionEvent.ACTION_DOWN -> {
@@ -255,6 +259,7 @@ class InfoWallpaperService : WallpaperService() {
         // ---------- данные ----------
 
         private fun tick() {
+            if (lockMode) return   // экран блокировки: ни сети, ни метрик — только летящая сцена
             val now = SystemClock.elapsedRealtime()
             if (now >= nextNetAt) { stats.sampleNet(); nextNetAt = now + 1500 }
             if (now >= nextSlowAt) { stats.sampleSlow(); nextSlowAt = now + 10_000 }
@@ -567,12 +572,14 @@ class InfoWallpaperService : WallpaperService() {
             try {
                 c = holder.lockHardwareCanvas() ?: return
                 val t = (SystemClock.elapsedRealtime() - startedAt) / 1000f
-                val fd = FrameData(cfg, if (cfg.fps <= 0) 0f else t, stats, remote, remoteError, weather, weatherNote, cfg.city, news, rates, serverViews, fxEdit, steam, steamNote, updateName, steamPage)
+                val fd = FrameData(cfg, if (cfg.fps <= 0) 0f else t, stats, remote, remoteError, weather, weatherNote, cfg.city, news, rates, serverViews, fxEdit, steam, steamNote, updateName, steamPage, lockMode)
                 if (Build.VERSION.SDK_INT >= 31 && cfg.glow > 0f && c.isHardwareAccelerated) drawWithBloom(c, fd)
                 else renderer.draw(c, width, height, fd)
-                // чёрный низ — поверх всего, включая свечение
-                renderer.drawBottomShade(c, width, height, cfg)
-                if (renderer.drawTapFx(c)) handler.postDelayed({ redraw() }, 16)   // анимация кольца даже при FPS 0
+                if (!lockMode) {
+                    // чёрный низ — поверх всего, включая свечение (на экране блокировки дока нет)
+                    renderer.drawBottomShade(c, width, height, cfg)
+                    if (renderer.drawTapFx(c)) handler.postDelayed({ redraw() }, 16)   // анимация кольца даже при FPS 0
+                }
             } catch (_: Exception) {
                 // поверхность могла исчезнуть
             } finally {

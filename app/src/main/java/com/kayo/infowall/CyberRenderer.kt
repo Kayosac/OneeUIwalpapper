@@ -43,6 +43,7 @@ class FrameData(
     val steamNote: String? = null,
     val update: String? = null,
     val steamPage: Int = 0,
+    val lock: Boolean = false,          // экран блокировки: только сцена, ракурс круче
 )
 
 /**
@@ -232,7 +233,9 @@ class CyberRenderer {
         // камера «летит»: рыскание, крен и тангаж плавно гуляют во времени
         val t = f.t
         // не больше ~36°: иначе правый край кадра смотрит вдоль рядов сетки и она обрывается
-        val yawNow = (cfg.yawDeg + 9f * sin(t * 0.05f) + 3f * sin(t * 0.13f + 1f)).coerceIn(0f, 36f)
+        // на экране блокировки камера рыщет почти вдвое шире
+        val yawSwing = if (f.lock) 16f else 9f
+        val yawNow = (cfg.yawDeg + yawSwing * sin(t * 0.05f) + 3f * sin(t * 0.13f + 1f)).coerceIn(0f, 36f)
         val vp = CX - tan(Math.toRadians(yawNow.toDouble())).toFloat() * F
 
         screenScale = s
@@ -244,6 +247,13 @@ class CyberRenderer {
 
         ensureShaders(dh, ext)
         drawScene(c, f, vp, yawNow, ext, dh)
+        if (f.lock) {
+            // экран блокировки: только сцена — ни часов, ни плашек, ни зон тапа
+            clockOnScreen.setEmpty(); calendarOnScreen.setEmpty(); goalsOnScreen.setEmpty(); updOnScreen.setEmpty()
+            converterOnScreen.setEmpty(); padOnScreen.setEmpty(); steamRows.clear(); steamNextRect.setEmpty(); srvRects.clear()
+            c.restore()
+            return
+        }
         // интерфейс мельче сцены: слой рисуется в увеличенных координатах и сжимается
         val ui = cfg.uiScale
         c.save()
@@ -313,18 +323,22 @@ class CyberRenderer {
         val t = f.t
         val xl = -ext - 400f
         val xr = W + ext + 400f
-        val roll = 4f * sin(t * 0.09f) + 1.5f * sin(t * 0.23f)      // крен: горизонт покачивается
-        val pitch = 14f * sin(t * 0.07f)                           // тангаж: горизонт чуть ходит вверх-вниз
+        val lk = f.lock
+        // блокировка: крен и тангаж сильнее, горизонт выше, камера вдвое выше — земли в кадре больше
+        val roll = if (lk) 8f * sin(t * 0.09f) + 3f * sin(t * 0.23f) else 4f * sin(t * 0.09f) + 1.5f * sin(t * 0.23f)
+        val pitch = (if (lk) 24f else 14f) * sin(t * 0.07f)
+        val lift = if (lk) 260f else 0f
+        val cam = if (lk) CAM * 1.9f else CAM
 
         c.save()
-        c.rotate(roll, vp, HZ + pitch)
-        c.translate(0f, pitch)
+        c.rotate(roll, vp, HZ + pitch - lift)
+        c.translate(0f, pitch - lift)
 
         // небо у горизонта
         c.drawRect(xl, 300f, xr, HZ, skyP)
 
         // рельеф: летим вперёд; яркость отрезков гаснет с глубиной, вдали — горы
-        terrain.build(t, yaw, (W / 2f + ext) / F * 1.3f, CX, HZ, F, CAM)
+        terrain.build(t, yaw, (W / 2f + ext) / F * (if (lk) 1.6f else 1.3f), CX, HZ, F, cam)
         for (b in 0 until Terrain.NB) {
             val k = (b + 1f) / Terrain.NB
             val d = terrain.diagBuf[b]; val cl = terrain.colsBuf[b]; val rw = terrain.rowsBuf[b]

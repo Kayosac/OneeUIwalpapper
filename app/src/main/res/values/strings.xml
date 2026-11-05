@@ -2,5 +2,7 @@
 <resources>
     <string name="app_name">InfoWall</string>
     <string name="converter_name">Конвертер</string>
-    <string name="wp_desc">Киберпанк-обои: рельеф, неоновое солнце, часы, погода, календарь, курсы и метрики планшета</string>
+    <string name="wp_desc">Киберпанк-обои: летящий рельеф, часы, погода, календарь, курсы, серверы и метрики планшета</string>
+    <string name="lock_name">InfoWall · блокировка</string>
+    <string name="lock_desc">Для экрана блокировки: только летящий неоновый рельеф, без цифр и виджетов, ракурс круче</string>
 </resources>

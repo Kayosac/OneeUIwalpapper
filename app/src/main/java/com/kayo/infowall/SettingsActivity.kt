@@ -177,6 +177,8 @@ class SettingsActivity : Activity() {
         col += space(dp(16))
         col += button("Установить InfoWall на рабочий стол") { setWallpaper() }
         col += label("Двойной тап по пустому месту рабочего стола — обновить погоду и серверы.")
+        col += button("Поставить на экран блокировки") { setWallpaper(InfoLockWallpaperService::class.java) }
+        col += label("Только летящий рельеф, без виджетов, ракурс круче. В системном окне выберите «Экран блокировки».")
 
         // живые обои за окном настроек; панель — нижние ~55 % экрана, верх (часы, плашки, погода) остаётся виден
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
@@ -398,8 +400,8 @@ class SettingsActivity : Activity() {
 
     // ---------- источник ----------
 
-    private fun setWallpaper() {
-        val component = ComponentName(this, InfoWallpaperService::class.java)
+    private fun setWallpaper(cls: Class<*> = InfoWallpaperService::class.java) {
+        val component = ComponentName(this, cls)
         try {
             startActivity(Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER)
                 .putExtra(WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT, component))

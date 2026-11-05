@@ -74,5 +74,19 @@
                 android:name="android.service.wallpaper"
                 android:resource="@xml/wallpaper" />
         </service>
+
+        <!-- экран блокировки: только летящий рельеф, без виджетов, ракурс экстремальнее -->
+        <service
+            android:name=".InfoLockWallpaperService"
+            android:exported="true"
+            android:label="@string/lock_name"
+            android:permission="android.permission.BIND_WALLPAPER">
+            <intent-filter>
+                <action android:name="android.service.wallpaper.WallpaperService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.wallpaper"
+                android:resource="@xml/wallpaper_lock" />
+        </service>
     </application>
 </manifest>
