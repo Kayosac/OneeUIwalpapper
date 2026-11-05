@@ -116,7 +116,9 @@ class Terrain {
         const val ROWS = 44
         const val MAXK = 900
         const val XSTEP = 0.65f
-        const val Z_NEAR = 0.9f
+        // ближний ряд при перескоке сетки должен быть ниже края экрана даже при высокой камере,
+        // крене и подъёме волн — иначе у камеры видно, как пропадает полоса треугольников
+        const val Z_NEAR = 0.3f
         const val Z_FAR = 40f
         const val FADE_FROM = 13f
         const val FADE_TO = 34f
