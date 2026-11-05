@@ -568,7 +568,9 @@ class CyberRenderer {
             val left = g.daysLeft(now) ?: 0L
             val p = g.progress(now)
             val col = when { left < 0 -> withA(label, 0.6f); left <= 3 -> BAD_COLOR; else -> accent }
-            segRing(c, Math.round(p * GOAL_SEG), if (left < 0) 0 else 1, col)
+            // убывающий таймер: в день, когда задали дату, кольцо полное, к самой дате — пустое
+            val remain = if (left < 0) 0f else 1f - p
+            segRing(c, kotlin.math.ceil(remain * GOAL_SEG).toInt(), if (left < 0) 0 else 1, col)
             // в центре — дни; прошла — галочка
             if (left < 0) {
                 text.typeface = labelFace; text.textSize = 12f; text.color = col
