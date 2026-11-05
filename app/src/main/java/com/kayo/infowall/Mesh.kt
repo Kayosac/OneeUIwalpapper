@@ -15,6 +15,7 @@ import java.net.URL
 import java.net.URLDecoder
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.PriorityQueue
 import java.util.zip.ZipInputStream
 import kotlin.math.abs
 import kotlin.math.cos
@@ -22,21 +23,62 @@ import kotlin.math.max
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-/** Каркас для отрисовки: вершины (x,y,z подряд, нормированы в радиус 1) и пары индексов рёбер. */
-class WireMesh(val verts: FloatArray, val edges: IntArray) {
+/**
+ * Low-poly сетка для отрисовки каркасом: вершины (x,y,z, нормированы в радиус 1) и треугольники.
+ * Рёбра, их соседние грани и нормали граней считаются один раз при создании —
+ * по ним рендер каждый кадр находит силуэт.
+ */
+class WireMesh(val verts: FloatArray, val tris: IntArray) {
     val vertexCount get() = verts.size / 3
+    val faceCount get() = tris.size / 3
+    val edges: IntArray
+    val edgeFaces: IntArray
+    val normals = FloatArray(tris.size)
+
+    init {
+        val map = HashMap<Long, Int>()
+        val e = ArrayList<Int>()
+        val ef = ArrayList<Int>()
+        for (f in 0 until faceCount) {
+            val a = tris[f * 3]; val b = tris[f * 3 + 1]; val c = tris[f * 3 + 2]
+            // нормаль грани
+            val ux = verts[b * 3] - verts[a * 3]; val uy = verts[b * 3 + 1] - verts[a * 3 + 1]; val uz = verts[b * 3 + 2] - verts[a * 3 + 2]
+            val vx = verts[c * 3] - verts[a * 3]; val vy = verts[c * 3 + 1] - verts[a * 3 + 1]; val vz = verts[c * 3 + 2] - verts[a * 3 + 2]
+            var nx = uy * vz - uz * vy; var ny = uz * vx - ux * vz; var nz = ux * vy - uy * vx
+            val l = sqrt(nx * nx + ny * ny + nz * nz)
+            if (l > 0f) { nx /= l; ny /= l; nz /= l }
+            normals[f * 3] = nx; normals[f * 3 + 1] = ny; normals[f * 3 + 2] = nz
+            for (k in 0 until 3) {
+                val p = tris[f * 3 + k]; val q = tris[f * 3 + (k + 1) % 3]
+                val key = (minOf(p, q).toLong() shl 32) or maxOf(p, q).toLong()
+                val idx = map[key]
+                if (idx == null) {
+                    map[key] = e.size / 2
+                    e.add(minOf(p, q)); e.add(maxOf(p, q))
+                    ef.add(f); ef.add(-1)
+                } else if (ef[idx * 2 + 1] == -1) {
+                    ef[idx * 2 + 1] = f
+                }
+            }
+        }
+        edges = e.toIntArray()
+        edgeFaces = ef.toIntArray()
+    }
+
     val edgeCount get() = edges.size / 2
 }
 
 /**
  * Модели для обоев: встроенная уточка, свой файл (.glb / .gltf в .zip) и Sketchfab по ссылке.
- * Любая модель упрощается кластеризацией вершин до ~MAX_EDGES рёбер — получается
- * лёгкий светящийся каркас в духе low-poly.
+ * Импорт: сварка вершин по швам UV → (для тяжёлых) грубая кластеризация →
+ * QEM-упрощение (Garland–Heckbert) до ~TARGET_TRIS треугольников.
  */
 object Meshes {
 
-    private const val FILE = "model.bin"
-    private const val MAX_EDGES = 1800
+    private const val FILE = "model2.bin"
+    private const val TARGET_TRIS = 760
+    private const val MAX_TARGET_TRIS = 1800
+    private const val PRECLUSTER_ABOVE = 140_000
     private const val MAX_TRIS = 4_000_000
     private const val MAX_DOWNLOAD = 120L * 1024 * 1024
 
@@ -46,9 +88,9 @@ object Meshes {
         DataInputStream(File(ctx.filesDir, FILE).inputStream().buffered()).use { inp ->
             val nv = inp.readInt()
             val v = FloatArray(nv) { inp.readFloat() }
-            val ne = inp.readInt()
-            val e = IntArray(ne) { inp.readInt() }
-            WireMesh(v, e)
+            val nt = inp.readInt()
+            val t = IntArray(nt) { inp.readInt() }
+            WireMesh(v, t)
         }
     }.getOrNull()
 
@@ -57,8 +99,8 @@ object Meshes {
         DataOutputStream(tmp.outputStream().buffered()).use { out ->
             out.writeInt(m.verts.size)
             m.verts.forEach { out.writeFloat(it) }
-            out.writeInt(m.edges.size)
-            m.edges.forEach { out.writeInt(it) }
+            out.writeInt(m.tris.size)
+            m.tris.forEach { out.writeInt(it) }
         }
         if (!tmp.renameTo(File(ctx.filesDir, FILE))) throw IOException("не смог сохранить модель")
     }
@@ -66,11 +108,9 @@ object Meshes {
     // ---------- встроенная уточка ----------
 
     fun duck(): WireMesh {
-        val verts = ArrayList<Float>()
-        val edges = ArrayList<Int>()
+        val verts = FloatList()
+        val tris = IntList()
         fun ellipsoid(c: FloatArray, r: FloatArray, nLat: Int, nLon: Int, deform: ((FloatArray) -> Unit)?) {
-            val base = verts.size / 3
-            // полюса — по одной вершине
             val idx = Array(nLat + 1) { IntArray(nLon) }
             for (i in 0..nLat) {
                 val ph = -Math.PI / 2 + Math.PI * i / nLat
@@ -87,25 +127,25 @@ object Meshes {
                     verts.add(p[0]); verts.add(p[1]); verts.add(p[2])
                 }
             }
-            for (i in 0..nLat) for (j in 0 until nLon) {
-                val n = (j + 1) % nLon
-                if (i in 1 until nLat) { edges.add(idx[i][j]); edges.add(idx[i][n]) }
-                if (i < nLat) {
-                    edges.add(idx[i][j]); edges.add(idx[i + 1][j])
-                    if (i in 1 until nLat - 1) { edges.add(idx[i][j]); edges.add(idx[i + 1][n]) }
-                }
+            fun tri(a: Int, b: Int, d: Int) {
+                if (a == b || b == d || a == d) return
+                tris.add(a); tris.add(b); tris.add(d)
             }
-            if (base < 0) throw IllegalStateException()
+            for (i in 0 until nLat) for (j in 0 until nLon) {
+                val n = (j + 1) % nLon
+                tri(idx[i][j], idx[i + 1][j], idx[i + 1][n])
+                tri(idx[i][j], idx[i + 1][n], idx[i][n])
+            }
         }
-        ellipsoid(floatArrayOf(0f, 0f, 0f), floatArrayOf(1.15f, 0.62f, 0.8f), 6, 12) { p ->
+        ellipsoid(floatArrayOf(0f, 0f, 0f), floatArrayOf(1.15f, 0.62f, 0.8f), 7, 14) { p ->
             if (p[0] < -0.55f) p[1] += (-p[0] - 0.55f) * (if (p[1] > -0.1f) 1.0f else 0.45f)
             if (p[1] < -0.42f) p[1] = -0.42f + (p[1] + 0.42f) * 0.4f
         }
-        ellipsoid(floatArrayOf(0.72f, 0.86f, 0f), floatArrayOf(0.43f, 0.43f, 0.43f), 6, 10, null)
-        ellipsoid(floatArrayOf(1.2f, 0.76f, 0f), floatArrayOf(0.3f, 0.085f, 0.2f), 2, 8, null)
-        val v = verts.toFloatArray()
+        ellipsoid(floatArrayOf(0.72f, 0.86f, 0f), floatArrayOf(0.43f, 0.43f, 0.43f), 7, 12, null)
+        ellipsoid(floatArrayOf(1.2f, 0.76f, 0f), floatArrayOf(0.3f, 0.085f, 0.2f), 3, 8, null)
+        val v = verts.toArray()
         normalize(v)
-        return WireMesh(v, edges.toIntArray())
+        return WireMesh(v, tris.toArray())
     }
 
     // ---------- импорт ----------
@@ -122,7 +162,7 @@ object Meshes {
         checkExtensions(g.json)
         val (pos, tris) = extractTriangles(g)
         if (tris.isEmpty()) throw IOException("в модели нет треугольников")
-        return simplifyToWire(pos, tris)
+        return buildFromTriangles(pos, tris)
     }
 
     @Throws(IOException::class)
@@ -370,74 +410,271 @@ object Meshes {
 
     // ---------- упрощение ----------
 
-    /** Перебирает размер сетки кластеризации, пока число рёбер не влезет в бюджет. */
-    private fun simplifyToWire(pos: FloatArray, tris: IntArray): WireMesh {
-        var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE; var minZ = Float.MAX_VALUE
-        var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE; var maxZ = -Float.MAX_VALUE
+
+    // ---------- упрощение ----------
+
+    private fun buildFromTriangles(pos: FloatArray, tris: IntArray): WireMesh {
+        var p = DoubleArray(pos.size) { pos[it].toDouble() }
+        var t = tris
+        // 1) сварка: glTF режет вершины по швам текстур, без этого QEM видит «дыры»
+        run { val w = weld(p, t, 1 shl 20); p = w.first; t = w.second }
+        // 2) очень тяжёлые модели сначала грубо сжимаем кластеризацией
+        if (t.size / 3 > PRECLUSTER_ABOVE) {
+            val c = cluster(p, t, 240); p = c.first; t = c.second
+        }
+        if (t.isEmpty()) throw IOException("после очистки в модели не осталось граней")
+        // 3) QEM: простым формам хватает ~760 треугольников, сложным даём до 1800
+        val target = (t.size / 3 / 8).coerceIn(TARGET_TRIS, MAX_TARGET_TRIS)
+        val (vp, vt) = qem(p, t, target)
+        val v = FloatArray(vp.size) { vp[it].toFloat() }
+        normalize(v)
+        return WireMesh(v, vt)
+    }
+
+    private fun bounds(p: DoubleArray): DoubleArray {
+        val b = doubleArrayOf(Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE, -Double.MAX_VALUE, -Double.MAX_VALUE, -Double.MAX_VALUE)
         var i = 0
-        while (i < pos.size) {
-            val x = pos[i]; val y = pos[i + 1]; val z = pos[i + 2]
-            if (x.isFinite() && y.isFinite() && z.isFinite()) {
-                if (x < minX) minX = x; if (y < minY) minY = y; if (z < minZ) minZ = z
-                if (x > maxX) maxX = x; if (y > maxY) maxY = y; if (z > maxZ) maxZ = z
+        while (i < p.size) {
+            for (k in 0 until 3) {
+                val x = p[i + k]
+                if (x.isFinite()) { if (x < b[k]) b[k] = x; if (x > b[k + 3]) b[k + 3] = x }
             }
             i += 3
         }
-        val extent = max(maxX - minX, max(maxY - minY, maxZ - minZ))
-        if (!(extent > 0f)) throw IOException("модель пустая или плоская")
-
-        var best: WireMesh? = null
-        for (grid in intArrayOf(56, 44, 34, 26, 20, 15, 11, 8)) {
-            val cell = extent / grid
-            val cluster = HashMap<Long, Int>()
-            val sum = FloatList()
-            val cnt = IntList()
-            val map = IntArray(pos.size / 3)
-            for (v in map.indices) {
-                val x = pos[v * 3]; val y = pos[v * 3 + 1]; val z = pos[v * 3 + 2]
-                val ix = ((x - minX) / cell).toInt().coerceIn(0, grid)
-                val iy = ((y - minY) / cell).toInt().coerceIn(0, grid)
-                val iz = ((z - minZ) / cell).toInt().coerceIn(0, grid)
-                val key = (ix.toLong() * 4096 + iy) * 4096 + iz
-                val id = cluster.getOrPut(key) {
-                    sum.add(0f); sum.add(0f); sum.add(0f); cnt.add(0); cnt.size - 1
-                }
-                sum[id * 3] += x; sum[id * 3 + 1] += y; sum[id * 3 + 2] += z
-                cnt[id] = cnt[id] + 1
-                map[v] = id
-            }
-            val edgeSet = HashSet<Long>()
-            val edges = IntList()
-            var t = 0
-            while (t + 2 < tris.size) {
-                val a = map.getOrElse(tris[t]) { -1 }
-                val b = map.getOrElse(tris[t + 1]) { -1 }
-                val c = map.getOrElse(tris[t + 2]) { -1 }
-                t += 3
-                if (a < 0 || b < 0 || c < 0 || a == b || b == c || a == c) continue
-                for ((p, q) in arrayOf(a to b, b to c, c to a)) {
-                    val lo = minOf(p, q); val hi = maxOf(p, q)
-                    if (edgeSet.add(lo.toLong() shl 32 or hi.toLong())) { edges.add(lo); edges.add(hi) }
-                }
-                if (edges.size / 2 > MAX_EDGES * 4) break
-            }
-            val verts = FloatArray(cnt.size * 3)
-            for (k in 0 until cnt.size) {
-                val n = cnt[k].toFloat()
-                verts[k * 3] = sum[k * 3] / n; verts[k * 3 + 1] = sum[k * 3 + 1] / n; verts[k * 3 + 2] = sum[k * 3 + 2] / n
-            }
-            val wire = WireMesh(verts, edges.toArray())
-            best = wire
-            if (wire.edgeCount <= MAX_EDGES) break
-        }
-        val result = best ?: throw IOException("не удалось упростить модель")
-        val v = result.verts
-        normalize(v)
-        return WireMesh(v, compactEdges(result.edges, MAX_EDGES))
+        return b
     }
 
-    private fun compactEdges(e: IntArray, limit: Int): IntArray =
-        if (e.size / 2 <= limit) e else e.copyOf(limit * 2)
+    /** Склейка вершин, совпадающих с точностью до 1/grid габарита; вырожденные грани выкидываются. */
+    private fun weld(p: DoubleArray, t: IntArray, grid: Int): Pair<DoubleArray, IntArray> = remapByCells(p, t, grid, average = false)
+
+    /** Кластеризация в сетку grid³ с усреднением позиций. */
+    private fun cluster(p: DoubleArray, t: IntArray, grid: Int): Pair<DoubleArray, IntArray> = remapByCells(p, t, grid, average = true)
+
+    private fun remapByCells(p: DoubleArray, t: IntArray, grid: Int, average: Boolean): Pair<DoubleArray, IntArray> {
+        val b = bounds(p)
+        val ext = max(b[3] - b[0], max(b[4] - b[1], b[5] - b[2]))
+        if (!(ext > 0)) throw IOException("модель пустая или плоская")
+        val cell = ext / grid
+        val ids = HashMap<Long, Int>()
+        val sum = DoubleList()
+        val cnt = IntList()
+        val map = IntArray(p.size / 3)
+        for (v in map.indices) {
+            val x = p[v * 3]; val y = p[v * 3 + 1]; val z = p[v * 3 + 2]
+            val ix = ((x - b[0]) / cell).toLong().coerceIn(0, grid.toLong())
+            val iy = ((y - b[1]) / cell).toLong().coerceIn(0, grid.toLong())
+            val iz = ((z - b[2]) / cell).toLong().coerceIn(0, grid.toLong())
+            val key = (ix shl 42) or (iy shl 21) or iz
+            var id = ids[key]
+            if (id == null) {
+                id = cnt.size
+                ids[key] = id
+                sum.add(x); sum.add(y); sum.add(z); cnt.add(1)
+            } else if (average) {
+                sum[id * 3] += x; sum[id * 3 + 1] += y; sum[id * 3 + 2] += z
+                cnt[id] = cnt[id] + 1
+            }
+            map[v] = id
+        }
+        val out = DoubleArray(cnt.size * 3)
+        for (k in 0 until cnt.size) {
+            val n = if (average) cnt[k].toDouble() else 1.0
+            out[k * 3] = sum[k * 3] / n; out[k * 3 + 1] = sum[k * 3 + 1] / n; out[k * 3 + 2] = sum[k * 3 + 2] / n
+        }
+        val faces = IntList()
+        val seen = HashSet<String>()
+        var i = 0
+        while (i + 2 < t.size) {
+            val a = map.getOrElse(t[i]) { -1 }; val bb = map.getOrElse(t[i + 1]) { -1 }; val c = map.getOrElse(t[i + 2]) { -1 }
+            i += 3
+            if (a < 0 || bb < 0 || c < 0 || a == bb || bb == c || a == c) continue
+            if (average) {
+                // при кластеризации появляются дубли граней — отсекаем
+                val s = intArrayOf(a, bb, c).sorted()
+                if (!seen.add("${s[0]},${s[1]},${s[2]}")) continue
+            }
+            faces.add(a); faces.add(bb); faces.add(c)
+        }
+        return out to faces.toArray()
+    }
+
+    private class Cand(val cost: Double, val u: Int, val w: Int, val vu: Int, val vw: Int, val x: Double, val y: Double, val z: Double)
+
+    /**
+     * Упрощение по квадрикам ошибки (Garland–Heckbert, 1997): схлопываем ребро с наименьшей
+     * ошибкой, запрещаем перевороты граней, штрафуем сдвиг открытых краёв.
+     */
+    private fun qem(pos: DoubleArray, tris: IntArray, target: Int): Pair<DoubleArray, IntArray> {
+        val nv = pos.size / 3
+        val nf = tris.size / 3
+        val p = pos.copyOf()
+        val f = tris.copyOf()
+        val alive = BooleanArray(nf) { true }
+        val q = DoubleArray(nv * 10)
+        val vf = Array(nv) { IntBag() }
+
+        fun addPlane(v: Int, a: Double, b: Double, c: Double, d: Double, wgt: Double) {
+            val o = v * 10
+            q[o] += a * a * wgt; q[o + 1] += a * b * wgt; q[o + 2] += a * c * wgt; q[o + 3] += a * d * wgt
+            q[o + 4] += b * b * wgt; q[o + 5] += b * c * wgt; q[o + 6] += b * d * wgt
+            q[o + 7] += c * c * wgt; q[o + 8] += c * d * wgt; q[o + 9] += d * d * wgt
+        }
+
+        fun normalOf(a: Int, b: Int, c: Int, out: DoubleArray) {
+            val ux = p[b * 3] - p[a * 3]; val uy = p[b * 3 + 1] - p[a * 3 + 1]; val uz = p[b * 3 + 2] - p[a * 3 + 2]
+            val vx = p[c * 3] - p[a * 3]; val vy = p[c * 3 + 1] - p[a * 3 + 1]; val vz = p[c * 3 + 2] - p[a * 3 + 2]
+            out[0] = uy * vz - uz * vy; out[1] = uz * vx - ux * vz; out[2] = ux * vy - uy * vx
+        }
+
+        val n = DoubleArray(3)
+        for (fi in 0 until nf) {
+            val a = f[fi * 3]; val b = f[fi * 3 + 1]; val c = f[fi * 3 + 2]
+            vf[a].add(fi); vf[b].add(fi); vf[c].add(fi)
+            normalOf(a, b, c, n)
+            val area = sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2])
+            if (area < 1e-20) continue
+            val nx = n[0] / area; val ny = n[1] / area; val nz = n[2] / area
+            val d = -(nx * p[a * 3] + ny * p[a * 3 + 1] + nz * p[a * 3 + 2])
+            addPlane(a, nx, ny, nz, d, area); addPlane(b, nx, ny, nz, d, area); addPlane(c, nx, ny, nz, d, area)
+        }
+
+        // рёбра и открытые края
+        val edgeCount = HashMap<Long, Int>()
+        for (fi in 0 until nf) for (k in 0 until 3) {
+            val u = f[fi * 3 + k]; val w = f[fi * 3 + (k + 1) % 3]
+            val key = (minOf(u, w).toLong() shl 32) or maxOf(u, w).toLong()
+            edgeCount[key] = (edgeCount[key] ?: 0) + 1
+        }
+        for ((key, count) in edgeCount) {
+            if (count != 1) continue
+            val u = (key shr 32).toInt(); val w = (key and 0xFFFFFFFFL).toInt()
+            val fi = vf[u].firstCommon(vf[w]) ?: continue
+            normalOf(f[fi * 3], f[fi * 3 + 1], f[fi * 3 + 2], n)
+            val ex = p[w * 3] - p[u * 3]; val ey = p[w * 3 + 1] - p[u * 3 + 1]; val ez = p[w * 3 + 2] - p[u * 3 + 2]
+            var bx = ey * n[2] - ez * n[1]; var by = ez * n[0] - ex * n[2]; var bz = ex * n[1] - ey * n[0]
+            val bl = sqrt(bx * bx + by * by + bz * bz)
+            if (bl < 1e-20) continue
+            bx /= bl; by /= bl; bz /= bl
+            val d = -(bx * p[u * 3] + by * p[u * 3 + 1] + bz * p[u * 3 + 2])
+            val wgt = (ex * ex + ey * ey + ez * ez) * 10.0
+            addPlane(u, bx, by, bz, d, wgt); addPlane(w, bx, by, bz, d, wgt)
+        }
+
+        val ver = IntArray(nv)
+        val heap = PriorityQueue<Cand>(edgeCount.size + 16) { a, b -> a.cost.compareTo(b.cost) }
+
+        fun err(o1: Int, o2: Int, x: Double, y: Double, z: Double): Double {
+            fun g(k: Int) = q[o1 + k] + q[o2 + k]
+            return g(0) * x * x + 2 * g(1) * x * y + 2 * g(2) * x * z + 2 * g(3) * x +
+                g(4) * y * y + 2 * g(5) * y * z + 2 * g(6) * y + g(7) * z * z + 2 * g(8) * z + g(9)
+        }
+
+        fun push(u: Int, w: Int) {
+            val o1 = u * 10; val o2 = w * 10
+            val ux = p[u * 3]; val uy = p[u * 3 + 1]; val uz = p[u * 3 + 2]
+            val wx = p[w * 3]; val wy = p[w * 3 + 1]; val wz = p[w * 3 + 2]
+            val mx = (ux + wx) / 2; val my = (uy + wy) / 2; val mz = (uz + wz) / 2
+            var bx = ux; var by = uy; var bz = uz; var be = err(o1, o2, ux, uy, uz)
+            err(o1, o2, wx, wy, wz).let { if (it < be) { be = it; bx = wx; by = wy; bz = wz } }
+            err(o1, o2, mx, my, mz).let { if (it < be) { be = it; bx = mx; by = my; bz = mz } }
+            // оптимальная точка: решаем 3×3 по Крамеру
+            fun g(k: Int) = q[o1 + k] + q[o2 + k]
+            val a11 = g(0); val a12 = g(1); val a13 = g(2); val a22 = g(4); val a23 = g(5); val a33 = g(7)
+            val r1 = -g(3); val r2 = -g(6); val r3 = -g(8)
+            val det = a11 * (a22 * a33 - a23 * a23) - a12 * (a12 * a33 - a23 * a13) + a13 * (a12 * a23 - a22 * a13)
+            if (abs(det) > 1e-14) {
+                val x = (r1 * (a22 * a33 - a23 * a23) - a12 * (r2 * a33 - a23 * r3) + a13 * (r2 * a23 - a22 * r3)) / det
+                val y = (a11 * (r2 * a33 - a23 * r3) - r1 * (a12 * a33 - a23 * a13) + a13 * (a12 * r3 - r2 * a13)) / det
+                val z = (a11 * (a22 * r3 - r2 * a23) - a12 * (a12 * r3 - r2 * a13) + r1 * (a12 * a23 - a22 * a13)) / det
+                val len = sqrt((ux - wx) * (ux - wx) + (uy - wy) * (uy - wy) + (uz - wz) * (uz - wz))
+                val dist = sqrt((x - mx) * (x - mx) + (y - my) * (y - my) + (z - mz) * (z - mz))
+                if (dist < len * 2) {
+                    val e = err(o1, o2, x, y, z)
+                    if (e < be) { be = e; bx = x; by = y; bz = z }
+                }
+            }
+            heap.add(Cand(be, u, w, ver[u], ver[w], bx, by, bz))
+        }
+
+        for (key in edgeCount.keys) push((key shr 32).toInt(), (key and 0xFFFFFFFFL).toInt())
+
+        var live = nf
+        val n0 = DoubleArray(3)
+        val n1 = DoubleArray(3)
+        val nbr = IntBag()
+        val saveU = DoubleArray(3)
+        while (live > target) {
+            val cnd = heap.poll() ?: break
+            val u = cnd.u; val w = cnd.w
+            if (ver[u] != cnd.vu || ver[w] != cnd.vw) continue
+            if (!vf[u].hasCommon(vf[w], f)) continue
+
+            // запрет переворота граней вокруг u и w
+            var bad = false
+            for (src in arrayOf(vf[u], vf[w])) {
+                for (k in 0 until src.size) {
+                    val fi = src[k]
+                    val a = f[fi * 3]; val b = f[fi * 3 + 1]; val c = f[fi * 3 + 2]
+                    val hasU = a == u || b == u || c == u
+                    val hasW = a == w || b == w || c == w
+                    if (hasU && hasW) continue
+                    normalOf(a, b, c, n0)
+                    // временно двигаем вершины в новую точку
+                    val moved = if (hasU) u else w
+                    saveU[0] = p[moved * 3]; saveU[1] = p[moved * 3 + 1]; saveU[2] = p[moved * 3 + 2]
+                    p[moved * 3] = cnd.x; p[moved * 3 + 1] = cnd.y; p[moved * 3 + 2] = cnd.z
+                    normalOf(a, b, c, n1)
+                    p[moved * 3] = saveU[0]; p[moved * 3 + 1] = saveU[1]; p[moved * 3 + 2] = saveU[2]
+                    if (n0[0] * n1[0] + n0[1] * n1[1] + n0[2] * n1[2] <= 0.0) { bad = true; break }
+                }
+                if (bad) break
+            }
+            if (bad) continue
+
+            // схлопываем w → u
+            p[u * 3] = cnd.x; p[u * 3 + 1] = cnd.y; p[u * 3 + 2] = cnd.z
+            for (k in 0 until 10) q[u * 10 + k] += q[w * 10 + k]
+            val wf = vf[w]
+            for (k in 0 until wf.size) {
+                val fi = wf[k]
+                if (!alive[fi]) continue
+                val a = f[fi * 3]; val b = f[fi * 3 + 1]; val c = f[fi * 3 + 2]
+                if (a == u || b == u || c == u) {
+                    alive[fi] = false; live--
+                    for (vv in intArrayOf(a, b, c)) if (vv != w) vf[vv].remove(fi)
+                } else {
+                    if (a == w) f[fi * 3] = u
+                    if (b == w) f[fi * 3 + 1] = u
+                    if (c == w) f[fi * 3 + 2] = u
+                    vf[u].add(fi)
+                }
+            }
+            wf.clear()
+            ver[u]++; ver[w]++
+
+            nbr.clear()
+            val uf = vf[u]
+            for (k in 0 until uf.size) {
+                val fi = uf[k]
+                for (j in 0 until 3) { val vv = f[fi * 3 + j]; if (vv != u && !nbr.contains(vv)) nbr.add(vv) }
+            }
+            for (k in 0 until nbr.size) push(u, nbr[k])
+        }
+
+        // упаковка: только живые грани и используемые вершины
+        val remap = IntArray(nv) { -1 }
+        val outV = DoubleList()
+        val outF = IntList()
+        for (fi in 0 until nf) {
+            if (!alive[fi]) continue
+            for (j in 0 until 3) {
+                val v = f[fi * 3 + j]
+                if (remap[v] < 0) { remap[v] = outV.size / 3; outV.add(p[v * 3]); outV.add(p[v * 3 + 1]); outV.add(p[v * 3 + 2]) }
+                outF.add(remap[v])
+            }
+        }
+        return outV.toArray() to outF.toArray()
+    }
 
     /** Центр по габаритам в 0, наибольший радиус = 1. */
     private fun normalize(v: FloatArray) {
@@ -461,14 +698,22 @@ object Meshes {
         if (r > 0f && abs(r) < Float.MAX_VALUE) for (k in v.indices) v[k] /= r
     }
 
-    // ---------- компактные списки без боксинга ----------
+    // ---------- компактные коллекции без боксинга ----------
 
     private class FloatList {
         private var a = FloatArray(1024)
         var size = 0; private set
         fun add(x: Float) { if (size == a.size) a = a.copyOf(a.size * 2); a[size++] = x }
         operator fun get(i: Int) = a[i]
-        operator fun set(i: Int, x: Float) { a[i] = x }
+        fun toArray() = a.copyOf(size)
+    }
+
+    private class DoubleList {
+        private var a = DoubleArray(1024)
+        var size = 0; private set
+        fun add(x: Double) { if (size == a.size) a = a.copyOf(a.size * 2); a[size++] = x }
+        operator fun get(i: Int) = a[i]
+        operator fun set(i: Int, x: Double) { a[i] = x }
         fun toArray() = a.copyOf(size)
     }
 
@@ -479,5 +724,21 @@ object Meshes {
         operator fun get(i: Int) = a[i]
         operator fun set(i: Int, x: Int) { a[i] = x }
         fun toArray() = a.copyOf(size)
+    }
+
+    /** Маленький набор int без дублей контроля — для списков граней у вершины. */
+    private class IntBag {
+        private var a = IntArray(8)
+        var size = 0; private set
+        fun add(x: Int) { if (size == a.size) a = a.copyOf(a.size * 2); a[size++] = x }
+        operator fun get(i: Int) = a[i]
+        fun clear() { size = 0 }
+        fun contains(x: Int): Boolean { for (i in 0 until size) if (a[i] == x) return true; return false }
+        fun remove(x: Int) {
+            for (i in 0 until size) if (a[i] == x) { a[i] = a[size - 1]; size--; return }
+        }
+        fun firstCommon(o: IntBag): Int? { for (i in 0 until size) if (o.contains(a[i])) return a[i]; return null }
+        /** Есть ли у двух вершин общая живая грань (вершины проверяем по самим граням). */
+        fun hasCommon(o: IntBag, @Suppress("UNUSED_PARAMETER") faces: IntArray): Boolean = firstCommon(o) != null
     }
 }

@@ -36,6 +36,7 @@ class SettingsActivity : Activity() {
 
     private lateinit var accent: EditText
     private lateinit var fps: EditText
+    private lateinit var glow: EditText
     private lateinit var yaw: EditText
     private lateinit var zones: EditText
     private lateinit var swWeather: Switch
@@ -69,6 +70,8 @@ class SettingsActivity : Activity() {
         col += accent
         col += label("Кадров в секунду: 0 — без анимации (экономия), 10–30 — плавно")
         fps = field("20", cfg.fps.toString(), InputType.TYPE_CLASS_NUMBER); col += fps
+        col += label("Свечение (bloom): 0 — выкл, 1 — норма, до 2 — сильнее")
+        glow = field("1", trim(cfg.glow), InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL); col += glow
         col += label("Поворот камеры, ° (0–34)")
         yaw = field("24", cfg.yawDeg.toInt().toString(), InputType.TYPE_CLASS_NUMBER); col += yaw
 
@@ -154,6 +157,7 @@ class SettingsActivity : Activity() {
         Prefs.get(this).edit()
             .putString(Prefs.K_ACCENT, color)
             .putInt(Prefs.K_FPS, (fps.text.toString().toIntOrNull() ?: 20).coerceIn(0, 30))
+            .putFloat(Prefs.K_GLOW, (glow.text.toString().replace(',', '.').toFloatOrNull() ?: 1f).coerceIn(0f, 2f))
             .putFloat(Prefs.K_YAW, (yaw.text.toString().toFloatOrNull() ?: 24f).coerceIn(0f, 34f))
             .putString(Prefs.K_ZONES, zones.text.toString().trim())
             .putBoolean(Prefs.K_WEATHER, swWeather.isChecked)

@@ -12,8 +12,8 @@ android {
         minSdk = 29
         // 34: без принудительного edge-to-edge в экране настроек
         targetSdk = 34
-        versionCode = 2
-        versionName = "0.2"
+        versionCode = 3
+        versionName = "0.3"
     }
 
     // Постоянная подпись (чтобы новые сборки ставились поверх старых)

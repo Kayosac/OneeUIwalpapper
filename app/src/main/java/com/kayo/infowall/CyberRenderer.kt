@@ -86,9 +86,10 @@ class CyberRenderer {
     // ---------- модель ----------
     private var frontLines = FloatArray(0)
     private var backLines = FloatArray(0)
+    private var silLines = FloatArray(0)
+    private var front = BooleanArray(0)
     private var px = FloatArray(0)
     private var py = FloatArray(0)
-    private var pz = FloatArray(0)
 
     // ---------- иконки погоды (в квадрате 26×22) ----------
     private val cloudPath = Path().apply {
@@ -192,16 +193,16 @@ class CyberRenderer {
             floatArrayOf(0f, 0.3f, 1f), Shader.TileMode.CLAMP,
         )
         fogP.shader = LinearGradient(
-            0f, HZ, 0f, HZ + 135f,
-            intArrayOf(withA(Color.BLACK, 0.95f), withA(Color.BLACK, 0.55f), Color.TRANSPARENT),
-            floatArrayOf(0f, 0.2f, 1f), Shader.TileMode.CLAMP,
+            0f, HZ, 0f, HZ + FOG_H,
+            intArrayOf(withA(Color.BLACK, 0.6f), withA(Color.BLACK, 0.22f), Color.TRANSPARENT),
+            floatArrayOf(0f, 0.3f, 1f), Shader.TileMode.CLAMP,
         )
-        val top = 486f
+        val top = 548f
         val span = max(1f, dh - top)
         bottomP.shader = LinearGradient(
             0f, top, 0f, dh,
-            intArrayOf(Color.TRANSPARENT, withA(Color.BLACK, 0.45f), withA(Color.BLACK, 0.82f), withA(Color.BLACK, 0.94f)),
-            floatArrayOf(0f, 94f / span, 195f / span, 1f).map { it.coerceIn(0f, 1f) }.toFloatArray(),
+            intArrayOf(Color.TRANSPARENT, withA(Color.BLACK, 0.28f), withA(Color.BLACK, 0.5f), withA(Color.BLACK, 0.66f)),
+            floatArrayOf(0f, 80f / span, 180f / span, 1f).map { it.coerceIn(0f, 1f) }.toFloatArray(),
             Shader.TileMode.CLAMP,
         )
         val xl = -ext - 200f
@@ -261,13 +262,13 @@ class CyberRenderer {
                 diagLines[nd++] = gx[r][k]; diagLines[nd++] = gy[r][k]; diagLines[nd++] = gx[r + 1][k + 1]; diagLines[nd++] = gy[r + 1][k + 1]
             }
         }
-        line(withA(accent, 0.28f), 1f); c.drawLines(diagLines, 0, nd, stroke)
-        line(withA(accent, 0.5f), 1.1f); c.drawLines(colLines, 0, nc, stroke)
-        line(withA(accent, 0.16f), 4f); c.drawLines(rowLines, 0, nr, stroke)
-        line(withA(accent, 0.85f), 1.3f); c.drawLines(rowLines, 0, nr, stroke)
+        line(withA(accent, 0.34f), 1f); c.drawLines(diagLines, 0, nd, stroke)
+        line(withA(accent, 0.58f), 1.1f); c.drawLines(colLines, 0, nc, stroke)
+        line(withA(accent, 0.2f), 4.5f); c.drawLines(rowLines, 0, nr, stroke)
+        line(withA(accent, 0.92f), 1.4f); c.drawLines(rowLines, 0, nr, stroke)
 
         // дымка у горизонта прячет мельтешение дальних треугольников
-        c.drawRect(xl, HZ, xr, HZ + 135f, fogP)
+        c.drawRect(xl, HZ, xr, HZ + FOG_H, fogP)
 
         // горизонт: три слоя свечения
         val pulse = 0.8f + 0.2f * sin(t * 1.05f)
@@ -292,7 +293,7 @@ class CyberRenderer {
         }
 
         // затемнение снизу — спокойный фон под иконками
-        c.drawRect(xl, 486f, xr, dh, bottomP)
+        c.drawRect(xl, 548f, xr, dh, bottomP)
     }
 
     private fun buildTerrain(t: Float, yawDeg: Float) {
@@ -321,9 +322,11 @@ class CyberRenderer {
 
     private fun drawMesh(c: Canvas, m: WireMesh, cx: Float, cy: Float, theta: Float) {
         val n = m.vertexCount
-        if (px.size < n) { px = FloatArray(n); py = FloatArray(n); pz = FloatArray(n) }
+        if (px.size < n) { px = FloatArray(n); py = FloatArray(n) }
+        val nf = m.faceCount
+        if (front.size < nf) front = BooleanArray(nf)
         val need = m.edgeCount * 4
-        if (frontLines.size < need) { frontLines = FloatArray(need); backLines = FloatArray(need) }
+        if (frontLines.size < need) { frontLines = FloatArray(need); backLines = FloatArray(need); silLines = FloatArray(need) }
         val ct = cos(theta); val st = sin(theta)
         val al = -0.32f; val ca = cos(al); val sa = sin(al)
         val d = 7f; val sc = 560f
@@ -337,27 +340,39 @@ class CyberRenderer {
             val k = sc / (d - z2)
             px[i] = cx + x1 * k
             py[i] = cy - y2 * k
-            pz[i] = z2
         }
-        var nf = 0; var nb = 0
+        // какие грани смотрят на камеру
+        val nm = m.normals
+        for (f in 0 until nf) {
+            val nx = nm[f * 3]; val ny = nm[f * 3 + 1]; val nz = nm[f * 3 + 2]
+            val z1 = -nx * st + nz * ct
+            front[f] = ny * sa + z1 * ca > 0f
+        }
+        var nfr = 0; var nb = 0; var ns = 0
         val e = m.edges
-        var i = 0
-        while (i + 1 < e.size) {
-            val a = e[i]; val b = e[i + 1]
-            i += 2
-            if (a >= n || b >= n) continue
-            if ((pz[a] + pz[b]) * 0.5f > -0.1f) {
-                frontLines[nf++] = px[a]; frontLines[nf++] = py[a]; frontLines[nf++] = px[b]; frontLines[nf++] = py[b]
-            } else {
-                backLines[nb++] = px[a]; backLines[nb++] = py[a]; backLines[nb++] = px[b]; backLines[nb++] = py[b]
+        val ef = m.edgeFaces
+        for (k in 0 until m.edgeCount) {
+            val a = e[k * 2]; val b = e[k * 2 + 1]
+            val fa = front[ef[k * 2]]
+            val f2 = ef[k * 2 + 1]
+            val fb = if (f2 >= 0) front[f2] else !fa
+            when {
+                fa != fb -> { silLines[ns++] = px[a]; silLines[ns++] = py[a]; silLines[ns++] = px[b]; silLines[ns++] = py[b] }
+                fa -> { frontLines[nfr++] = px[a]; frontLines[nfr++] = py[a]; frontLines[nfr++] = px[b]; frontLines[nfr++] = py[b] }
+                else -> { backLines[nb++] = px[a]; backLines[nb++] = py[a]; backLines[nb++] = px[b]; backLines[nb++] = py[b] }
             }
         }
-        wireP.color = withA(accent, 0.28f); wireP.strokeWidth = 0.9f
+        wireP.color = withA(accent, 0.2f); wireP.strokeWidth = 0.8f
         c.drawLines(backLines, 0, nb, wireP)
-        wireP.color = withA(accent, 0.35f); wireP.strokeWidth = 5f
-        c.drawLines(frontLines, 0, nf, wireP)
-        wireP.color = Color.rgb(200, 250, 255); wireP.strokeWidth = 1.4f
-        c.drawLines(frontLines, 0, nf, wireP)
+        wireP.color = withA(accent, 0.3f); wireP.strokeWidth = 3.5f
+        c.drawLines(frontLines, 0, nfr, wireP)
+        wireP.color = withA(mix(accent, Color.WHITE, 0.45f), 0.85f); wireP.strokeWidth = 1.1f
+        c.drawLines(frontLines, 0, nfr, wireP)
+        // контур — самый яркий
+        wireP.color = withA(accent, 0.5f); wireP.strokeWidth = 7f
+        c.drawLines(silLines, 0, ns, wireP)
+        wireP.color = Color.rgb(220, 253, 255); wireP.strokeWidth = 2f
+        c.drawLines(silLines, 0, ns, wireP)
     }
 
     // ================= HUD =================
@@ -745,6 +760,7 @@ class CyberRenderer {
         private const val F = 600f
         private const val CAM = 0.5617f
         private const val SUN_R = 175f
+        private const val FOG_H = 90f
         private val PARTICLE_X = floatArrayOf(-73f, -47f, -25f, -7f, 7f, 21f, 39f, 61f, -35f, 31f, -53f, 15f)
 
         fun withA(c: Int, a: Float): Int =

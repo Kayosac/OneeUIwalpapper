@@ -1,8 +1,15 @@
 package com.kayo.infowall
 
+import android.annotation.TargetApi
 import android.app.WallpaperManager
 import android.content.SharedPreferences
+import android.graphics.BlendMode
 import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.RenderEffect
+import android.graphics.RenderNode
+import android.graphics.Shader
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -43,6 +50,12 @@ class InfoWallpaperService : WallpaperService() {
         private var nextNetAt = 0L
         private var nextSlowAt = 0L
         private var lastTap = 0L
+
+        // bloom: сцена пишется в RenderNode, поверх кладутся две размытые копии в режиме PLUS
+        private var sceneNode: RenderNode? = null
+        private var bloomNear: RenderNode? = null
+        private var bloomFar: RenderNode? = null
+        private var bloomKey = ""
 
         private val frame = object : Runnable {
             override fun run() {
@@ -208,14 +221,49 @@ class InfoWallpaperService : WallpaperService() {
             try {
                 c = holder.lockHardwareCanvas() ?: return
                 val t = (SystemClock.elapsedRealtime() - startedAt) / 1000f
-                renderer.draw(
-                    c, width, height,
-                    FrameData(cfg, if (cfg.fps <= 0) 0f else t, stats, remote, remoteError, weather, weatherNote, cfg.city, mesh),
-                )
+                val fd = FrameData(cfg, if (cfg.fps <= 0) 0f else t, stats, remote, remoteError, weather, weatherNote, cfg.city, mesh)
+                if (Build.VERSION.SDK_INT >= 31 && cfg.glow > 0f && c.isHardwareAccelerated) drawWithBloom(c, fd)
+                else renderer.draw(c, width, height, fd)
             } catch (_: Exception) {
                 // поверхность могла исчезнуть
             } finally {
                 if (c != null) runCatching { holder.unlockCanvasAndPost(c) }
+            }
+        }
+
+        @TargetApi(31)
+        private fun drawWithBloom(c: Canvas, fd: FrameData) {
+            if (Build.VERSION.SDK_INT < 31) return
+            val scene = sceneNode ?: RenderNode("scene").also { sceneNode = it }
+            scene.setPosition(0, 0, width, height)
+            val rc = scene.beginRecording(width, height)
+            try { renderer.draw(rc, width, height, fd) } finally { scene.endRecording() }
+
+            val key = "$width|$height|${cfg.glow}"
+            if (key != bloomKey) {
+                bloomKey = key
+                val s = minOf(width / 1280f, height / 800f)
+                bloomNear = makeBloom("bloomNear", 7f * s, 0.75f * cfg.glow)
+                bloomFar = makeBloom("bloomFar", 26f * s, 0.6f * cfg.glow)
+            }
+            c.drawRenderNode(scene)
+            for (b in listOfNotNull(bloomNear, bloomFar)) {
+                val r = b.beginRecording(width, height)
+                try { r.drawRenderNode(scene) } finally { b.endRecording() }
+                c.drawRenderNode(b)
+            }
+        }
+
+        @TargetApi(31)
+        private fun makeBloom(name: String, radius: Float, strength: Float): RenderNode? {
+            if (Build.VERSION.SDK_INT < 31) return null
+            return RenderNode(name).apply {
+                setPosition(0, 0, width, height)
+                setRenderEffect(RenderEffect.createBlurEffect(radius, radius, Shader.TileMode.DECAL))
+                setUseCompositingLayer(true, Paint().apply {
+                    blendMode = BlendMode.PLUS
+                    alpha = (strength.coerceIn(0f, 1f) * 255).toInt()
+                })
             }
         }
     }

@@ -31,6 +31,7 @@ data class Config(
     val intervalSec: Int,
     val accent: Int,
     val fps: Int,
+    val glow: Float,
     val yawDeg: Float,
     val zones: List<Zone>,
     val weather: Boolean,
@@ -51,6 +52,7 @@ object Prefs {
     const val K_INTERVAL = "interval_sec"
     const val K_ACCENT = "accent"
     const val K_FPS = "fps"
+    const val K_GLOW = "glow"
     const val K_YAW = "yaw"
     const val K_ZONES = "zones"
     const val K_WEATHER = "weather"
@@ -80,6 +82,7 @@ object Prefs {
             intervalSec = p.getInt(K_INTERVAL, 300).coerceAtLeast(MIN_INTERVAL),
             accent = parseColor(p.getString(K_ACCENT, DEFAULT_ACCENT)),
             fps = p.getInt(K_FPS, 20).coerceIn(0, 30),
+            glow = p.getFloat(K_GLOW, 1f).coerceIn(0f, 2f),
             yawDeg = p.getFloat(K_YAW, 24f).coerceIn(0f, 34f),
             zones = parseZones(p.getString(K_ZONES, DEFAULT_ZONES).orEmpty()),
             weather = p.getBoolean(K_WEATHER, true),
