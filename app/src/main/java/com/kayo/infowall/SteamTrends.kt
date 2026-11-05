@@ -35,8 +35,7 @@ class TrendGame(
  * (у SteamDB API нет, а сбор с сайта они запрещают):
  *  - NEW  — игра впервые попала в топ-100 по онлайну (ISteamChartsService, место неделю назад отсутствует);
  *  - ▲N   — поднялась в этом топе на N ≥ 15 мест за неделю;
- *  - HOT  — онлайн ≥ 1000 при малом числе отзывов (онлайн / (отзывы + 100) ≥ 0.5) у игры не старше 3 месяцев:
- *           так выглядит внезапный хит, пока отзывы не догнали игроков;
+ *  - HOT  — игра не старше 3 месяцев, которую сейчас играют ≥ 500 человек; выше — больше онлайн и новее игра;
  *  - WISH — невышедшая игра со свежей страницей (большой appid) уже высоко в Top Wishlists магазина;
  *           со второго дня — ещё и рывок по месту в Top Wishlists относительно вчера.
  * Вышедшие игры попадают в список, только если вышли не раньше чем 3 месяца назад.
@@ -51,6 +50,7 @@ object SteamTrends {
     const val ROWS = 15
     const val MAX = 80        // кандидатов на проверку перед отбором 15 (многие отсеются по дате выхода)
     private const val FRESH_DAYS = 90
+    private const val HOT_MIN = 500       // онлайн, с которого свежая игра — HOT
     private const val MAX_WISH = 6     // строк WISH в списке, если игр с онлайном хватает на остальные
     private const val PREFS = "infowall_steam2"
     private const val API = "https://api.steampowered.com"
@@ -94,27 +94,26 @@ object SteamTrends {
         val wish = sr[2] + sr[3]
         for ((id, name) in newRel + sellers) cand(id, name)
 
-        // 3) HOT: онлайн и отзывы у новинок и лидеров продаж (онлайн — каждый раз, отзывы и карточка — из кэша).
-        //    Запросы параллельно: онлайн в 8 потоков, карточки и отзывы магазина — в 4.
-        val hotIds = (newRel + sellers).distinctBy { it.first }.map { it.first }
+        // 3) HOT: свежая (до FRESH_DAYS) игра, которую сейчас много играют. Кандидаты — новинки, лидеры продаж
+        //    и топ-100 по онлайну. Сила: чем больше онлайн и чем новее игра, тем выше.
+        //    Онлайн — каждый раз (8 потоков), карточка с датой выхода — из кэша на сутки (4 потока).
+        val hotIds = ((newRel + sellers).map { it.first } + live.keys).distinct()
         val ccu = HashMap<Int, Int>()
         live.forEach { (id, v) -> ccu[id] = v.first }
         pmap(hotIds.filter { it !in live }, 8) { id -> id to runCatching { players(id) }.getOrDefault(-1) }
             .filterNotNull().forEach { (id, n) -> ccu[id] = n }
-        val hot = pmap(hotIds.filter { (ccu[it] ?: -1) >= 1000 }, 4) { id ->
+        val hot = pmap(hotIds.filter { (ccu[it] ?: -1) >= HOT_MIN }, 4) { id ->
             val m = details(meta, id, cc) ?: return@pmap null
             if (m.optString("t") != "game") return@pmap null
             val rel = m.optLong("r", -1L)
-            if (rel <= 0 || now - rel > FRESH_DAYS * DAY) return@pmap null
-            val revs = cachedReviews(reviews, id, now) ?: return@pmap null
-            Triple(id, rel, revs)
+            if (rel <= 0 || now - rel > FRESH_DAYS * DAY || m.optBoolean("cs", false)) return@pmap null
+            id to rel
         }
-        for ((id, rel, revs) in hot.filterNotNull()) {
-            val ratio = (ccu[id] ?: 0).toFloat() / (revs + 100)
-            if (ratio >= 0.5f) {
-                val fresh = if (now - rel < 30 * DAY) 10f else 0f
-                pool[id]?.offer(50f + min(35f, 15f * log10(ratio * 10f)) + fresh, "HOT", TrendGame.K_HOT)
-            }
+        for ((id, rel) in hot.filterNotNull()) {
+            val n = (ccu[id] ?: 0).coerceAtLeast(HOT_MIN)
+            val days = ((now - rel) / DAY).toFloat().coerceIn(0f, FRESH_DAYS.toFloat())
+            val score = 50f + min(30f, 12f * log10(n / HOT_MIN.toFloat())) + 15f * (1f - days / FRESH_DAYS)
+            cand(id, "").offer(score, "HOT", TrendGame.K_HOT)
         }
 
         // 4) WISH: свежая страница высоко в Top Wishlists; со второго дня — рывок по месту
