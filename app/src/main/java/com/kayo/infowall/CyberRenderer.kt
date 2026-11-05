@@ -473,6 +473,25 @@ class CyberRenderer {
 
     private val today get() = java.time.LocalDate.now()
 
+    /**
+     * Сегментное кольцо в стиле ретровейв: [GOAL_SEG] толстых сегментов с зазорами,
+     * [on] заполнено; последний заполненный — раскалённый (белый), если [hot] = 1.
+     */
+    private fun segRing(c: Canvas, on: Int, hot: Int, col: Int) {
+        val step = 360f / GOAL_SEG
+        for (k in 0 until GOAL_SEG) {
+            val a0 = -90f + k * step + 2.2f
+            val sw = step - 4.4f
+            if (k < on) {
+                line(withA(col, 0.28f), 10f); c.drawArc(rect, a0, sw, false, stroke)
+                line(if (hot == 1 && k == on - 1) mix(col, Color.WHITE, 0.6f) else col, 6f)
+                c.drawArc(rect, a0, sw, false, stroke)
+            } else {
+                line(withA(accent, 0.12f), 6f); c.drawArc(rect, a0, sw, false, stroke)
+            }
+        }
+    }
+
     private fun drawGoals(c: Canvas, goals: List<Goal>, x: Float, end: Float) {
         caption(c, "ЦЕЛИ", x, 68f)
         val cellW = (end - x) / 3f
@@ -481,23 +500,20 @@ class CyberRenderer {
         for (i in 0 until Goals.COUNT) {
             val g = goals.getOrNull(i) ?: Goal("", null, null)
             val cx = x + cellW * (i % 3 + 0.5f)
-            val cy = if (i < 3) 101f else 160f
-            stroke.strokeCap = Paint.Cap.ROUND
+            val cy = if (i < 3) 100f else 162f
+            rect.set(cx - r, cy - r, cx + r, cy + r)
+            // тонкое внешнее кольцо-рамка
+            line(withA(accent, if (g.empty) 0.12f else 0.28f), 1f); c.drawCircle(cx, cy, r + 6f, stroke)
             if (g.empty) {
-                line(withA(accent, 0.14f), 2f); c.drawCircle(cx, cy, r, stroke)
+                segRing(c, 0, 0, accent)
                 text.typeface = labelFace; text.textSize = 12f; text.letterSpacing = 0f; text.color = withA(label, 0.5f)
                 center(c, "+", cx, cy + 4.5f)
-                stroke.strokeCap = Paint.Cap.BUTT
                 continue
             }
             val left = g.daysLeft(now) ?: 0L
             val p = g.progress(now)
             val col = when { left < 0 -> withA(label, 0.6f); left <= 3 -> BAD_COLOR; else -> accent }
-            line(withA(accent, 0.14f), 3f); c.drawCircle(cx, cy, r, stroke)
-            rect.set(cx - r, cy - r, cx + r, cy + r)
-            line(withA(col, 0.3f), 6f); c.drawArc(rect, -90f, 360f * p, false, stroke)
-            line(col, 2.6f); c.drawArc(rect, -90f, 360f * p, false, stroke)
-            stroke.strokeCap = Paint.Cap.BUTT
+            segRing(c, Math.round(p * GOAL_SEG), if (left < 0) 0 else 1, col)
             // в центре — дни; прошла — галочка
             if (left < 0) {
                 text.typeface = labelFace; text.textSize = 12f; text.color = col
@@ -513,7 +529,7 @@ class CyberRenderer {
             text.typeface = labelFace; text.textSize = 9f; text.letterSpacing = 0.06f; text.color = label
             var name = g.name.ifBlank { "ЦЕЛЬ ${i + 1}" }.uppercase()
             while (name.length > 1 && measureMixed(name) > cellW - 6f) name = name.dropLast(1)
-            centerMixed(c, name, cx, cy + r + 13f)
+            centerMixed(c, name, cx, cy + r + 16f)
             text.letterSpacing = 0f
         }
     }
@@ -1074,7 +1090,8 @@ class CyberRenderer {
 
     companion object {
         private const val W = 1280f
-        private val BAD_COLOR = Color.rgb(255, 77, 109)   // сервер не отвечает / занято ≥ 90 %
+        private val BAD_COLOR = Color.rgb(255, 77, 109)
+        private const val GOAL_SEG = 16                       // сегментов в кольце цели   // сервер не отвечает / занято ≥ 90 %
         private const val H = 800f
         private const val CX = 640f
         private const val HZ = 519f
