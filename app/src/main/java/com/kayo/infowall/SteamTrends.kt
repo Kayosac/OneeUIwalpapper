@@ -24,7 +24,7 @@ class TrendGame(val appid: Int, val name: String, val players: Int, val hist: Fl
  */
 object SteamTrends {
 
-    const val ROWS = 7
+    const val ROWS = 15
     private const val PREFS = "infowall_steam"
     private const val K_NAMES = "names"
     private const val K_HIST = "hist"

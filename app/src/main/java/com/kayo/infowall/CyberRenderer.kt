@@ -804,16 +804,18 @@ class CyberRenderer {
      * обложки — монохром в цвет акцента, чтобы не спорить со стилем.
      */
     private fun drawSteam(c: Canvas, f: FrameData) {
-        val l = 48f; val t = 304f; val r = 760f
-        val headH = 30f; val rowH = 34f; val gap = 3f
+        // компактно: обложка · название · график · онлайн без пустых промежутков
+        val l = 48f; val t = 304f
+        val headH = 28f; val rowH = 26f; val gap = 2f
         val rows = f.steam.take(SteamTrends.ROWS)
         val b = t + headH + max(1, rows.size) * (rowH + gap) + 6f
+        val imgW = 58f; val imgH = imgW * 87f / 231f
+        val nameX = l + 8f + imgW + 10f
+        val sparkL = nameX + 200f; val sparkR = sparkL + 100f
+        val playersR = sparkR + 92f
+        val r = playersR + 10f
         panel(c, l, t, r, b)
         // шапка
-        val imgW = 90f; val imgH = imgW * 87f / 231f
-        val nameX = l + 10f + imgW + 12f
-        val playersR = r - 12f
-        val sparkR = playersR - 96f; val sparkL = sparkR - 150f
         text.typeface = labelFace; text.textSize = 11f; text.letterSpacing = 0.18f; text.color = accent
         c.drawText("TRENDING GAMES", nameX, t + 20f, text)
         text.textSize = 9f; text.letterSpacing = 0.12f; text.color = label
@@ -848,15 +850,15 @@ class CyberRenderer {
             if (i % 2 == 0) { fill.color = withA(accent, 0.04f); c.drawRect(l + 6f, y, r - 6f, y + rowH, fill) }
             // обложка
             val iy = y + (rowH - imgH) / 2f
-            capDst.set(l + 10f, iy, l + 10f + imgW, iy + imgH)
+            capDst.set(l + 8f, iy, l + 8f + imgW, iy + imgH)
             val bmp = g.img
             if (bmp != null) c.drawBitmap(bmp, null, capDst, capPaint)
             else { fill.color = withA(accent, 0.1f); c.drawRect(capDst, fill) }
             line(withA(accent, 0.35f), 1f); c.drawRect(capDst, stroke)
             // название
-            text.typeface = labelFace; text.textSize = 11f; text.letterSpacing = 0.02f; text.color = face
+            text.typeface = labelFace; text.textSize = 10f; text.letterSpacing = 0.02f; text.color = face
             var name = g.name
-            val maxW = sparkL - 14f - nameX
+            val maxW = sparkL - 10f - nameX
             if (measureMixed(name) > maxW) {
                 while (name.length > 1 && measureMixed("$name…") > maxW) name = name.dropLast(1)
                 name = "$name…"
@@ -864,12 +866,12 @@ class CyberRenderer {
             drawMixed(c, name, nameX, y + rowH / 2f + 4f)
             text.letterSpacing = 0f
             // график за 7 дней (наш)
-            spark7(c, g.hist, sparkL, y + 6f, sparkR - sparkL, rowH - 12f)
+            spark7(c, g.hist, sparkL, y + 5f, sparkR - sparkL, rowH - 10f)
             // онлайн
             val v = String.format(java.util.Locale.US, "%,d", g.players)
-            text.typeface = numFace; text.textSize = 13f; text.color = accent
+            text.typeface = numFace; text.textSize = 12f; text.color = accent
             text.setShadowLayer(6f, 0f, 0f, withA(accent, 0.6f))
-            c.drawText(v, playersR - text.measureText(v), y + rowH / 2f + 4.5f, text)
+            c.drawText(v, playersR - text.measureText(v), y + rowH / 2f + 4f, text)
             text.clearShadowLayer()
             steamRows += RectF(screenOx + l * k, y * k, screenOx + r * k, (y + rowH) * k)
             steamIds += g.appid
