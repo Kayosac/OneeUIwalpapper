@@ -2,6 +2,7 @@ package com.kayo.infowall
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.graphics.Color
 
 enum class State {
     OK, WARN, BAD, NONE;
@@ -20,61 +21,93 @@ data class Item(val label: String, val value: String, val state: State = State.N
 
 data class RemoteData(val title: String?, val items: List<Item>)
 
+enum class ModelSource { DUCK, FILE, SKETCHFAB, NONE }
+
+data class Zone(val label: String, val id: String)
+
 data class Config(
     val url: String,
     val token: String,
     val intervalSec: Int,
-    val topPct: Int,
-    val showClock: Boolean,
-    val showBattery: Boolean,
-    val showRam: Boolean,
-    val showStorage: Boolean,
-    val showNetwork: Boolean,
+    val accent: Int,
+    val fps: Int,
+    val yawDeg: Float,
+    val zones: List<Zone>,
+    val weather: Boolean,
+    val lat: Double?,
+    val lon: Double?,
+    val city: String,
+    val modelSource: ModelSource,
+    val modelSpeed: Float,
+    val modelVersion: Int,
+    val sketchfabUrl: String,
+    val sketchfabToken: String,
 )
 
 object Prefs {
     private const val NAME = "infowall"
-    private const val K_URL = "url"
-    private const val K_TOKEN = "token"
-    private const val K_INTERVAL = "interval_sec"
-    private const val K_TOP = "top_pct"
-    private const val K_CLOCK = "show_clock"
-    private const val K_BATTERY = "show_battery"
-    private const val K_RAM = "show_ram"
-    private const val K_STORAGE = "show_storage"
-    private const val K_NETWORK = "show_network"
+    const val K_URL = "url"
+    const val K_TOKEN = "token"
+    const val K_INTERVAL = "interval_sec"
+    const val K_ACCENT = "accent"
+    const val K_FPS = "fps"
+    const val K_YAW = "yaw"
+    const val K_ZONES = "zones"
+    const val K_WEATHER = "weather"
+    const val K_LAT = "lat"
+    const val K_LON = "lon"
+    const val K_CITY = "city"
+    const val K_MODEL_SRC = "model_src"
+    const val K_MODEL_SPEED = "model_speed"
+    const val K_MODEL_VER = "model_ver"
+    const val K_SF_URL = "sf_url"
+    const val K_SF_TOKEN = "sf_token"
 
     const val MIN_INTERVAL = 15
+    const val DEFAULT_ACCENT = "#00E5FF"
+    const val DEFAULT_ZONES = "МСК=Europe/Moscow, НСК=Asia/Novosibirsk"
 
     fun get(ctx: Context): SharedPreferences =
         ctx.applicationContext.getSharedPreferences(NAME, Context.MODE_PRIVATE)
 
     fun load(ctx: Context): Config {
         val p = get(ctx)
+        val lat = p.getString(K_LAT, null)?.toDoubleOrNull()
+        val lon = p.getString(K_LON, null)?.toDoubleOrNull()
         return Config(
             url = p.getString(K_URL, "").orEmpty().trim(),
             token = p.getString(K_TOKEN, "").orEmpty().trim(),
             intervalSec = p.getInt(K_INTERVAL, 300).coerceAtLeast(MIN_INTERVAL),
-            topPct = p.getInt(K_TOP, 8).coerceIn(0, 85),
-            showClock = p.getBoolean(K_CLOCK, true),
-            showBattery = p.getBoolean(K_BATTERY, true),
-            showRam = p.getBoolean(K_RAM, true),
-            showStorage = p.getBoolean(K_STORAGE, true),
-            showNetwork = p.getBoolean(K_NETWORK, true),
+            accent = parseColor(p.getString(K_ACCENT, DEFAULT_ACCENT)),
+            fps = p.getInt(K_FPS, 20).coerceIn(0, 30),
+            yawDeg = p.getFloat(K_YAW, 24f).coerceIn(0f, 34f),
+            zones = parseZones(p.getString(K_ZONES, DEFAULT_ZONES).orEmpty()),
+            weather = p.getBoolean(K_WEATHER, true),
+            lat = lat,
+            lon = lon,
+            city = p.getString(K_CITY, "").orEmpty(),
+            modelSource = runCatching { ModelSource.valueOf(p.getString(K_MODEL_SRC, "DUCK")!!) }
+                .getOrDefault(ModelSource.DUCK),
+            modelSpeed = p.getFloat(K_MODEL_SPEED, 1f).coerceIn(0f, 3f),
+            modelVersion = p.getInt(K_MODEL_VER, 0),
+            sketchfabUrl = p.getString(K_SF_URL, "").orEmpty().trim(),
+            sketchfabToken = p.getString(K_SF_TOKEN, "").orEmpty().trim(),
         )
     }
 
-    fun save(ctx: Context, c: Config) {
-        get(ctx).edit()
-            .putString(K_URL, c.url.trim())
-            .putString(K_TOKEN, c.token.trim())
-            .putInt(K_INTERVAL, c.intervalSec.coerceAtLeast(MIN_INTERVAL))
-            .putInt(K_TOP, c.topPct.coerceIn(0, 85))
-            .putBoolean(K_CLOCK, c.showClock)
-            .putBoolean(K_BATTERY, c.showBattery)
-            .putBoolean(K_RAM, c.showRam)
-            .putBoolean(K_STORAGE, c.showStorage)
-            .putBoolean(K_NETWORK, c.showNetwork)
-            .apply()
-    }
+    fun parseColor(s: String?): Int =
+        runCatching { Color.parseColor(s?.trim().orEmpty()) }.getOrDefault(Color.parseColor(DEFAULT_ACCENT))
+
+    /** «МСК=Europe/Moscow, НСК=Asia/Novosibirsk» → список поясов (неизвестные пропускаем). */
+    fun parseZones(s: String): List<Zone> = s.split(',', ';', '\n')
+        .mapNotNull { part ->
+            val kv = part.split('=', limit = 2)
+            if (kv.size != 2) return@mapNotNull null
+            val label = kv[0].trim().take(6)
+            val id = kv[1].trim()
+            if (label.isEmpty() || id.isEmpty()) return@mapNotNull null
+            val ok = runCatching { java.util.TimeZone.getAvailableIDs().contains(id) }.getOrDefault(false)
+            if (ok) Zone(label, id) else null
+        }
+        .take(3)
 }

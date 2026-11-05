@@ -14,42 +14,53 @@ import java.util.concurrent.Executors
 
 class InfoWallpaperService : WallpaperService() {
 
-    override fun onCreateEngine(): Engine = InfoEngine()
+    override fun onCreateEngine(): Engine = CyberEngine()
 
-    inner class InfoEngine : Engine(), SharedPreferences.OnSharedPreferenceChangeListener {
+    inner class CyberEngine : Engine(), SharedPreferences.OnSharedPreferenceChangeListener {
 
         private val handler = Handler(Looper.getMainLooper())
         private val io: ExecutorService = Executors.newSingleThreadExecutor()
-        private val renderer = Renderer()
-
+        private val renderer = CyberRenderer()
+        private lateinit var stats: Stats
         private lateinit var cfg: Config
+
         private var visible = false
         private var width = 0
         private var height = 0
+        private val startedAt = SystemClock.elapsedRealtime()
 
-        // Состояние удалённого источника (только main thread)
+        // всё ниже меняется только в main thread
         private var remote: RemoteData? = null
         private var remoteError: String? = null
-        private var remoteOkAt = 0L
-        private var nextFetchAt = 0L      // elapsedRealtime
-        private var fetching = false      // только main thread
+        private var nextRemoteAt = 0L
+        private var remoteBusy = false
+        private var weather: WeatherData? = null
+        private var weatherNote: String? = null
+        private var nextWeatherAt = 0L
+        private var weatherBusy = false
+        private var mesh: WireMesh? = null
+        private var meshKey = ""
+        private var nextNetAt = 0L
+        private var nextSlowAt = 0L
         private var lastTap = 0L
 
-        /** Перерисовка раз в 30 с, выровненная по часам, — смена минуты не опаздывает. */
-        private val tick = object : Runnable {
+        private val frame = object : Runnable {
             override fun run() {
                 if (!visible) return
-                maybeFetch()
+                tick()
                 draw()
-                val now = System.currentTimeMillis()
-                handler.postDelayed(this, PERIOD_MS - now % PERIOD_MS + 50)
+                val fps = cfg.fps
+                val delay = if (fps <= 0) 30_000L - System.currentTimeMillis() % 30_000L + 50 else 1000L / fps
+                handler.postDelayed(this, delay)
             }
         }
 
         override fun onCreate(holder: SurfaceHolder) {
             super.onCreate(holder)
+            stats = Stats(applicationContext)
             cfg = Prefs.load(applicationContext)
             Prefs.get(applicationContext).registerOnSharedPreferenceChangeListener(this)
+            loadMesh()
         }
 
         override fun onSurfaceChanged(holder: SurfaceHolder, format: Int, w: Int, h: Int) {
@@ -61,13 +72,16 @@ class InfoWallpaperService : WallpaperService() {
 
         override fun onVisibilityChanged(v: Boolean) {
             visible = v
-            handler.removeCallbacks(tick)
-            if (v) tick.run()   // сразу актуальные данные при каждом показе
+            handler.removeCallbacks(frame)
+            if (v) {
+                renderer.invalidateTime()
+                frame.run()
+            }
         }
 
         override fun onSurfaceDestroyed(holder: SurfaceHolder) {
             visible = false
-            handler.removeCallbacks(tick)
+            handler.removeCallbacks(frame)
             super.onSurfaceDestroyed(holder)
         }
 
@@ -82,75 +96,110 @@ class InfoWallpaperService : WallpaperService() {
             val old = cfg
             cfg = Prefs.load(applicationContext)
             if (old.url != cfg.url || old.token != cfg.token) {
-                remote = null
-                remoteError = null
-                remoteOkAt = 0L
+                remote = null; remoteError = null
             }
-            nextFetchAt = 0L
+            if (old.lat != cfg.lat || old.lon != cfg.lon || old.weather != cfg.weather) {
+                weather = null; weatherNote = null
+            }
+            nextRemoteAt = 0L
+            nextWeatherAt = 0L
+            renderer.invalidateTime()
+            loadMesh()
             if (visible) {
-                handler.removeCallbacks(tick)
-                tick.run()
+                handler.removeCallbacks(frame)
+                frame.run()
             }
         }
 
-        /** Двойной тап по пустому месту рабочего стола — принудительное обновление. */
-        override fun onCommand(
-            action: String?, x: Int, y: Int, z: Int, extras: Bundle?, resultRequested: Boolean,
-        ): Bundle? {
+        /** Двойной тап по пустому месту — обновить источник и погоду. */
+        override fun onCommand(action: String?, x: Int, y: Int, z: Int, extras: Bundle?, resultRequested: Boolean): Bundle? {
             if (action == WallpaperManager.COMMAND_TAP) {
                 val now = SystemClock.elapsedRealtime()
-                if (now - lastTap < DOUBLE_TAP_MS) {
-                    nextFetchAt = 0L
-                    maybeFetch()
-                    draw()
-                    lastTap = 0L
-                } else {
-                    lastTap = now
-                }
+                if (now - lastTap < 400) {
+                    nextRemoteAt = 0L; nextWeatherAt = 0L; lastTap = 0L
+                } else lastTap = now
             }
             return null
         }
 
-        private fun maybeFetch() {
-            val url = cfg.url
-            if (url.isBlank() || fetching) return
-            val now = SystemClock.elapsedRealtime()
-            if (now < nextFetchAt) return
+        // ---------- данные ----------
 
-            fetching = true
+        private fun tick() {
+            val now = SystemClock.elapsedRealtime()
+            if (now >= nextNetAt) { stats.sampleNet(); nextNetAt = now + 1500 }
+            if (now >= nextSlowAt) { stats.sampleSlow(); nextSlowAt = now + 10_000 }
+            maybeFetchRemote(now)
+            maybeFetchWeather(now)
+        }
+
+        private fun maybeFetchRemote(now: Long) {
+            val url = cfg.url
+            if (url.isBlank() || remoteBusy || now < nextRemoteAt) return
+            remoteBusy = true
             val token = cfg.token
             val interval = cfg.intervalSec * 1000L
-            try {
-                io.execute {
-                    // В фоне только сеть; всё состояние меняем в main thread
-                    val result = runCatching { RemoteSource.fetch(url, token) }
-                    handler.post { onFetched(url, result, interval) }
+            submit {
+                val r = runCatching { RemoteSource.fetch(url, token) }
+                handler.post {
+                    remoteBusy = false
+                    if (url == cfg.url) {
+                        r.onSuccess { remote = it; remoteError = null }
+                            .onFailure { remoteError = it.message ?: it.javaClass.simpleName }
+                    }
+                    nextRemoteAt = SystemClock.elapsedRealtime() + if (r.isSuccess) interval else minOf(interval, 60_000L)
                 }
-            } catch (_: Exception) {
-                fetching = false   // executor уже остановлен
             }
         }
 
-        private fun onFetched(url: String, result: Result<RemoteData>, interval: Long) {
-            fetching = false
-            if (url != cfg.url) {
-                // пока шёл запрос, URL сменили — сразу грузим новый
-                nextFetchAt = 0L
-                if (visible) maybeFetch()
-                return
+        private fun maybeFetchWeather(now: Long) {
+            if (!cfg.weather || weatherBusy || now < nextWeatherAt) return
+            weatherBusy = true
+            val ctx = applicationContext
+            val savedLat = cfg.lat
+            val savedLon = cfg.lon
+            submit {
+                // свежая точка, если система её даёт; иначе — сохранённая в настройках
+                val loc = runCatching { Weather.lastLocation(ctx) }.getOrNull()
+                val lat = loc?.latitude ?: savedLat
+                val lon = loc?.longitude ?: savedLon
+                val result = if (lat == null || lon == null) {
+                    Result.failure(IllegalStateException("место не определено — открой настройки"))
+                } else runCatching { Weather.fetch(lat, lon) }
+                handler.post {
+                    weatherBusy = false
+                    result.onSuccess { weather = it; weatherNote = null }
+                        .onFailure { weatherNote = it.message ?: "нет связи" }
+                    nextWeatherAt = SystemClock.elapsedRealtime() + if (result.isSuccess) 30 * 60_000L else 5 * 60_000L
+                }
             }
-            result.onSuccess {
-                remote = it
-                remoteError = null
-                remoteOkAt = System.currentTimeMillis()
-            }.onFailure {
-                remoteError = it.message ?: it.javaClass.simpleName
-            }
-            // при ошибке повторяем не позже чем через минуту
-            nextFetchAt = SystemClock.elapsedRealtime() +
-                if (result.isSuccess) interval else minOf(interval, RETRY_MS)
-            if (visible) draw()
         }
+
+        private fun loadMesh() {
+            val key = "${cfg.modelSource}|${cfg.modelVersion}"
+            if (key == meshKey) return
+            meshKey = key
+            when (cfg.modelSource) {
+                ModelSource.NONE -> mesh = null
+                ModelSource.DUCK -> mesh = Meshes.duck()
+                ModelSource.FILE, ModelSource.SKETCHFAB -> {
+                    val ctx = applicationContext
+                    submit {
+                        val m = Meshes.saved(ctx) ?: Meshes.duck()
+                        handler.post { if (meshKey == key) mesh = m }
+                    }
+                }
+            }
+        }
+
+        private fun submit(block: () -> Unit) {
+            try {
+                io.execute(block)
+            } catch (_: Exception) {
+                // executor уже остановлен
+            }
+        }
+
+        // ---------- кадр ----------
 
         private fun draw() {
             if (width == 0 || height == 0) return
@@ -158,24 +207,16 @@ class InfoWallpaperService : WallpaperService() {
             var c: Canvas? = null
             try {
                 c = holder.lockHardwareCanvas() ?: return
-                val sys = SystemStats.collect(applicationContext, cfg)
-                renderer.draw(c, width, height, cfg, sys, remote, remoteError, remoteOkAt)
+                val t = (SystemClock.elapsedRealtime() - startedAt) / 1000f
+                renderer.draw(
+                    c, width, height,
+                    FrameData(cfg, if (cfg.fps <= 0) 0f else t, stats, remote, remoteError, weather, weatherNote, cfg.city, mesh),
+                )
             } catch (_: Exception) {
-                // поверхность могла исчезнуть между проверкой и отрисовкой
+                // поверхность могла исчезнуть
             } finally {
-                if (c != null) {
-                    try {
-                        holder.unlockCanvasAndPost(c)
-                    } catch (_: Exception) {
-                    }
-                }
+                if (c != null) runCatching { holder.unlockCanvasAndPost(c) }
             }
         }
-    }
-
-    companion object {
-        private const val PERIOD_MS = 30_000L
-        private const val RETRY_MS = 60_000L
-        private const val DOUBLE_TAP_MS = 400L
     }
 }

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">InfoWall</string>
-    <string name="wp_desc">Живые обои с часами, состоянием планшета и данными из твоего JSON-источника</string>
+    <string name="wp_desc">Киберпанк-обои: рельеф, неоновое солнце, 3D-каркас, часы, погода, календарь и метрики планшета</string>
 </resources>
