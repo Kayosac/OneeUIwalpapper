@@ -97,7 +97,6 @@ class CyberRenderer {
         !goalsOnScreen.isEmpty && goalsOnScreen.contains(x, y) -> "goals"
         else -> steamRows.indices.firstOrNull { steamRows[it].contains(x, y) }?.let { "steam:${steamIds[it]}" }
             ?: srvRects.indices.firstOrNull { srvRects[it].contains(x, y) }?.let { "srv:$it" }
-        else -> null
     }
 
     private fun toScreen(out: RectF, l: Float, t: Float, r: Float, b: Float, ui: Float) {
