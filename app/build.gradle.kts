@@ -12,8 +12,10 @@ android {
         minSdk = 29
         // 34: без принудительного edge-to-edge в экране настроек
         targetSdk = 34
-        versionCode = 9
-        versionName = "0.9"
+        // номер версии растёт сам с каждой сборкой CI — по нему обои понимают, что вышло обновление
+        val run = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
+        versionCode = if (run != null) 100 + run else 9
+        versionName = if (run != null) "1.$run" else "0.9-dev"
     }
 
     // Постоянная подпись (чтобы новые сборки ставились поверх старых)

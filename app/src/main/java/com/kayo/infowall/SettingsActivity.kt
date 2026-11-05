@@ -36,6 +36,9 @@ class SettingsActivity : Activity() {
     private lateinit var swWeather: Switch
     private lateinit var placeStatus: TextView
     private lateinit var swConverter: Switch
+    private lateinit var updStatus: TextView
+    private lateinit var updButton: Button
+    private var updBusy = false
     private lateinit var curList: LinearLayout
     private lateinit var overlayStatus: TextView
     private val curCodes = ArrayList<String>()
@@ -54,6 +57,13 @@ class SettingsActivity : Activity() {
             setPadding(pad, dp(8), pad, pad)
         }
         col += label("Обои видны сверху — всё меняется на них сразу.")
+
+        // --- обновление ---
+        col += header("Обновление")
+        updStatus = status("Версия ${Updater.currentName(this)} · проверяю…"); col += updStatus
+        updButton = button("Обновить") { startUpdate() }.apply { isEnabled = false }
+        col += updButton
+        col += label("Новая версия ставится поверх этой: настройки, цели, серверы и обои сохраняются.")
 
         // --- вид ---
         col += header("Вид")
@@ -224,6 +234,56 @@ class SettingsActivity : Activity() {
         val ok = Build.VERSION.SDK_INT < 23 || android.provider.Settings.canDrawOverlays(this)
         overlayStatus.text = if (ok) "✓ Разрешение есть — часы и календарь на обоях открывают приложения"
         else "✗ Разрешения нет — тап по часам и календарю ничего не откроет"
+        checkUpdate()
+    }
+
+    // ---------- обновление ----------
+
+    private fun checkUpdate() {
+        if (updBusy) return
+        val cur = Updater.currentName(this)
+        Thread {
+            val info = runCatching { Updater.latest() }.getOrNull()
+            val newer = info != null && info.code > Updater.currentCode(this)
+            Updater.check(this)
+            runOnUiThread {
+                if (isFinishing || updBusy) return@runOnUiThread
+                updStatus.text = when {
+                    info == null -> "Версия $cur · не удалось проверить обновления"
+                    newer -> "Версия $cur → доступна ${info.name}: ${info.notes}"
+                    else -> "Версия $cur · это последняя"
+                }
+                updButton.isEnabled = newer
+                updButton.text = if (newer) "Обновить до ${info!!.name}" else "Обновить"
+            }
+        }.start()
+    }
+
+    private fun startUpdate() {
+        if (!Updater.canInstall(this)) {
+            // один раз: разрешить InfoWall «Установку неизвестных приложений»
+            toast("Разреши установку для InfoWall и нажми «Обновить» ещё раз")
+            try {
+                startActivity(Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+            } catch (_: ActivityNotFoundException) {
+                toast("Открой: Настройки → Приложения → InfoWall → Установка неизвестных приложений")
+            }
+            return
+        }
+        updBusy = true
+        updButton.isEnabled = false
+        Thread {
+            val err = runCatching {
+                Updater.downloadAndInstall(this) { msg -> runOnUiThread { updStatus.text = msg } }
+            }.exceptionOrNull()
+            runOnUiThread {
+                updBusy = false
+                if (err != null) {
+                    updStatus.text = "Не получилось: ${err.message ?: err.javaClass.simpleName}"
+                    updButton.isEnabled = true
+                } else updStatus.text = "Подтверди обновление в окне Android"
+            }
+        }.start()
     }
 
     // ---------- валюты ----------

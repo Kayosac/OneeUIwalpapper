@@ -35,7 +35,9 @@ jobs:
             echo "INFOWALL_KEYSTORE=$RUNNER_TEMP/infowall.keystore" >> "$GITHUB_ENV"
             echo "Подпись: постоянный ключ из секрета"
           else
-            echo "::warning::Секрет KEYSTORE_B64 не задан — подпись debug-ключом, обновление поверх старой версии не встанет"
+            # без постоянного ключа сборка не встанет поверх установленной и сломает обновление — не публикуем
+            echo "::error::Секрет KEYSTORE_B64 не задан: без постоянного ключа обновление поверх установленной версии невозможно"
+            exit 1
           fi
 
       - name: Build
@@ -57,8 +59,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           SHORT=$(git rev-parse --short HEAD)
+          # version.json — по нему приложение узнаёт, что есть сборка новее установленной
+          python3 - <<'PY'
+          import json, os, subprocess
+          run = int(os.environ["GITHUB_RUN_NUMBER"])
+          notes = subprocess.run(["git", "log", "-1", "--pretty=%s"], capture_output=True, text=True).stdout.strip()
+          json.dump({"versionCode": 100 + run, "versionName": f"1.{run}", "notes": notes}, open("version.json", "w"), ensure_ascii=False)
+          PY
           gh release delete latest --yes --cleanup-tag || true
-          gh release create latest InfoWall.apk \
+          gh release create latest InfoWall.apk version.json \
             --target "$GITHUB_SHA" \
             --title "InfoWall ($SHORT)" \
             --notes "Сборка из ${SHORT}: $(git log -1 --pretty=%s)" \

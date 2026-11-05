@@ -41,6 +41,7 @@ class FrameData(
     val fx: FxEdit? = null,
     val steam: List<TrendGame> = emptyList(),
     val steamNote: String? = null,
+    val update: String? = null,
 )
 
 /**
@@ -88,10 +89,12 @@ class CyberRenderer {
     private val clockOnScreen = RectF()
     private val calendarOnScreen = RectF()
     private val goalsOnScreen = RectF()
+    private val updOnScreen = RectF()
     private val srvRects = ArrayList<RectF>()
 
     /** "clock" / "calendar" / "goals" под точкой тапа или null. */
     fun appHit(x: Float, y: Float): String? = when {
+        !updOnScreen.isEmpty && updOnScreen.contains(x, y) -> "update"      // метка лежит на зоне часов — проверяем раньше
         !clockOnScreen.isEmpty && clockOnScreen.contains(x, y) -> "clock"
         !calendarOnScreen.isEmpty && calendarOnScreen.contains(x, y) -> "calendar"
         !goalsOnScreen.isEmpty && goalsOnScreen.contains(x, y) -> "goals"
@@ -353,7 +356,25 @@ class CyberRenderer {
 
         drawClock(c, f)
         toScreen(clockOnScreen, 60f, 40f, 560f, 205f, f.cfg.uiScale)   // часы вместе с поясами
+        drawUpdateChip(c, f)
         drawMetrics(c, f)
+    }
+
+    /** Метка «вышло обновление» под часовыми поясами; тап — настройки с кнопкой «Обновить». */
+    private fun drawUpdateChip(c: Canvas, f: FrameData) {
+        val name = f.update
+        if (name == null) { updOnScreen.setEmpty(); return }
+        val s = "▲ ОБНОВЛЕНИЕ $name"
+        text.typeface = labelFace; text.textSize = 10f; text.letterSpacing = 0.15f
+        val w = measureMixed(s)
+        val l = 82f; val t = 200f; val r = l + w + 16f; val b = t + 18f
+        val pulse = 0.65f + 0.35f * sin(f.t * 3f)
+        fill.shader = null; fill.color = withA(accent, 0.12f * pulse); c.drawRect(l, t, r, b, fill)
+        line(withA(accent, 0.8f * pulse), 1f); c.drawRect(l, t, r, b, stroke)
+        text.color = accent
+        drawMixed(c, s, l + 8f, t + 13f)
+        text.letterSpacing = 0f
+        toScreen(updOnScreen, l - 6f, t - 6f, r + 6f, b + 6f, f.cfg.uiScale)
     }
 
     private fun corners(c: Canvas, l: Float, t: Float, r: Float, b: Float, k: Float) {

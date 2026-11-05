@@ -66,6 +66,9 @@ class InfoWallpaperService : WallpaperService() {
         private var steamNote: String? = null
         private var steamBusy = false
         private var nextSteamAt = 0L
+        private var updateName: String? = null    // вышла версия новее — на обоях появляется метка
+        private var nextUpdAt = 0L
+        private var updBusy = false
 
         // bloom: сцена пишется в RenderNode с эффектом «сцена + размытая копия»
         private var sceneNode: RenderNode? = null
@@ -223,6 +226,7 @@ class InfoWallpaperService : WallpaperService() {
                     "clock" -> { openClock(); return@run }
                     "calendar" -> { openCalendar(); return@run }
                     "goals" -> { launchFirst(android.content.Intent(applicationContext, GoalsActivity::class.java)); return@run }
+                    "update" -> { launchFirst(android.content.Intent(applicationContext, SettingsActivity::class.java)); return@run }
                     null -> {}
                     else -> {
                         val h = hit ?: ""
@@ -256,8 +260,25 @@ class InfoWallpaperService : WallpaperService() {
             maybeFetchRates(now)
             maybeFetchServers(now)
             maybeFetchSteam(now)
+            maybeCheckUpdate(now)
             // клавиатура сама закрывается через 30 с без нажатий (с сохранением набранного)
             fxEdit?.let { if (now - it.lastAt > 30_000L) closeFx(true) }
+        }
+
+        /** Проверка обновления: раз в 6 часов, пока обои видны (маленький json с GitHub). */
+        private fun maybeCheckUpdate(now: Long) {
+            if (updBusy || now < nextUpdAt) return
+            updBusy = true
+            val ctx = applicationContext
+            submit {
+                runCatching { Updater.check(ctx) }
+                val name = runCatching { Updater.knownUpdate(ctx) }.getOrNull()
+                handler.post {
+                    updBusy = false
+                    updateName = name
+                    nextUpdAt = SystemClock.elapsedRealtime() + 6 * 3600_000L
+                }
+            }
         }
 
         /** Trending Games: раз в 30 минут и только пока обои видны. */
@@ -527,7 +548,7 @@ class InfoWallpaperService : WallpaperService() {
             try {
                 c = holder.lockHardwareCanvas() ?: return
                 val t = (SystemClock.elapsedRealtime() - startedAt) / 1000f
-                val fd = FrameData(cfg, if (cfg.fps <= 0) 0f else t, stats, remote, remoteError, weather, weatherNote, cfg.city, news, rates, serverViews, fxEdit, steam, steamNote)
+                val fd = FrameData(cfg, if (cfg.fps <= 0) 0f else t, stats, remote, remoteError, weather, weatherNote, cfg.city, news, rates, serverViews, fxEdit, steam, steamNote, updateName)
                 if (Build.VERSION.SDK_INT >= 31 && cfg.glow > 0f && c.isHardwareAccelerated) drawWithBloom(c, fd)
                 else renderer.draw(c, width, height, fd)
                 // чёрный низ — поверх всего, включая свечение
