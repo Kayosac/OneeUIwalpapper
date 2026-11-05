@@ -105,6 +105,20 @@ class SettingsActivity : Activity() {
         // --- новости ---
         col += header("Бегущая строка")
         swNews = switch("Новости Google на русском", cfg.news) { v -> put { putBoolean(Prefs.K_NEWS, v) } }; col += swNews
+        col += label("Темы")
+        val chosen = cfg.newsTopics.toMutableSet()
+        for (t in NewsTopic.values()) {
+            col += android.widget.CheckBox(this).apply {
+                text = t.title
+                isChecked = t in chosen
+                minHeight = dp(44)
+                setOnCheckedChangeListener { b, on ->
+                    if (on) chosen += t else chosen -= t
+                    if (chosen.isEmpty()) { chosen += t; b.isChecked = true; toast("Нужна хотя бы одна тема"); return@setOnCheckedChangeListener }
+                    put { putString(Prefs.K_NEWS_TOPICS, NewsTopic.join(chosen)) }
+                }
+            }
+        }
         col += label("Регион подборки: RU, KZ, BY, UA… (две буквы)")
         newsRegion = field("RU", cfg.newsRegion, InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS)
         onText(newsRegion) { t ->

@@ -131,10 +131,10 @@ class InfoWallpaperService : WallpaperService() {
             if (old.lat != cfg.lat || old.lon != cfg.lon || old.weather != cfg.weather) {
                 weather = null; weatherNote = null
             }
-            if (old.newsRegion != cfg.newsRegion) news = emptyList()
+            if (old.newsRegion != cfg.newsRegion || old.newsTopics != cfg.newsTopics) news = emptyList()
             // сеть дёргаем только если поменялось то, от чего зависят данные (ползунки в настройках шлют много изменений)
             val wxChanged = old.lat != cfg.lat || old.lon != cfg.lon || old.weather != cfg.weather
-            val newsChanged = old.newsRegion != cfg.newsRegion || old.news != cfg.news
+            val newsChanged = old.newsRegion != cfg.newsRegion || old.news != cfg.news || old.newsTopics != cfg.newsTopics
             if (old.servers != cfg.servers) {
                 srvState.keys.retainAll(cfg.servers.map { it.url }.toSet())
                 nextSrvAt = 0L
@@ -388,8 +388,9 @@ class InfoWallpaperService : WallpaperService() {
             if (!cfg.news || newsBusy || now < nextNewsAt) return
             newsBusy = true
             val region = cfg.newsRegion
+            val topics = cfg.newsTopics
             submit {
-                val r = runCatching { News.fetch(region).shuffled() }
+                val r = runCatching { News.fetch(region, topics) }
                 handler.post {
                     newsBusy = false
                     r.onSuccess { if (it.isNotEmpty()) news = it }

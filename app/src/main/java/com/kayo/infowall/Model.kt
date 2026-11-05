@@ -39,6 +39,7 @@ data class Config(
     val shadeSolid: Float,
     val shadeFade: Float,
     val newsRegion: String,
+    val newsTopics: Set<NewsTopic>,
     val font: FontPreset,
     val fontVersion: Int,
     val yawDeg: Float,
@@ -69,6 +70,7 @@ object Prefs {
     const val K_SHADE_SOLID = "shade_solid"
     const val K_SHADE_FADE = "shade_fade"
     const val K_NEWS_REGION = "news_region"
+    const val K_NEWS_TOPICS = "news_topics"
     const val K_FONT = "font"
     const val K_FONT_VER = "font_ver"
     const val K_YAW = "yaw"
@@ -109,6 +111,7 @@ object Prefs {
             shadeSolid = p.getFloat(K_SHADE_SOLID, 0.093f).coerceIn(0f, 0.4f),
             shadeFade = p.getFloat(K_SHADE_FADE, 0.112f).coerceIn(0.02f, 0.5f),
             newsRegion = p.getString(K_NEWS_REGION, "RU").orEmpty().ifBlank { "RU" },
+            newsTopics = NewsTopic.parse(p.getString(K_NEWS_TOPICS, null)),
             font = FontPreset.FINAL,   // шрифты зафиксированы: Sixtyfour / Bitcount / Days One
             fontVersion = p.getInt(K_FONT_VER, 0),
             yawDeg = p.getFloat(K_YAW, 24f).coerceIn(0f, 34f),
