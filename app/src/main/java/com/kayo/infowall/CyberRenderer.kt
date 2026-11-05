@@ -450,12 +450,12 @@ class CyberRenderer {
 
     private fun drawMetrics(c: Canvas, f: FrameData) {
         val st = f.stats
-        // две колонки справа от часов: [батарея + память] и [сеть]
+        // узкие колонки справа от часов: [батарея + память] [сеть] [сервер 1] [сервер 2]
         val x0 = 78f + 480f + 32f
         val x1 = uiR - 28f
         val gap = 24f
-        val colA = (x1 - x0 - gap) / 2.12f
-        val xB = x0 + colA + gap
+        val colW = 212f
+        val xB = x0 + colW + gap
         fill.shader = null
         fill.color = withA(accent, 0.32f)
         c.drawRect(x0, 50f, x0 + 1f, 198f, fill)
@@ -463,7 +463,7 @@ class CyberRenderer {
 
         // --- батарея ---
         val ax = x0 + 16f
-        val aEnd = x0 + colA
+        val aEnd = x0 + colW
         caption(c, "БАТАРЕЯ", ax, 68f)
         val pct = st.batteryPct
         val batText = buildString {
@@ -471,7 +471,7 @@ class CyberRenderer {
             st.batteryTemp?.let { append(" $it°") }
             if (st.charging) append(" +")
         }
-        text.typeface = numFace; text.textSize = 22f; text.letterSpacing = 0f; text.color = accent
+        text.typeface = numFace; text.textSize = 18f; text.letterSpacing = 0f; text.color = accent
         text.setShadowLayer(10f, 0f, 0f, withA(accent, 0.65f))
         c.drawText(batText, aEnd - text.measureText(batText), 70f, text)
         text.clearShadowLayer()
@@ -492,10 +492,89 @@ class CyberRenderer {
 
         // --- сеть: графики ---
         val bx = xB + 16f
+        val bEnd = xB + colW
         caption(c, "СЕТЬ", bx, 68f)
-        netRow(c, "↓", st.rxNow, st.rxHist, st.histCount, bx, x1, 116f)
-        netRow(c, "↑", st.txNow, st.txHist, st.histCount, bx, x1, 172f)
+        text.typeface = labelFace; text.textSize = 10f; text.letterSpacing = 0f; text.color = label
+        c.drawText("Мбит/с", bEnd - text.measureText("Мбит/с"), 68f, text)
+        netRow(c, "↓", st.rxNow, st.rxHist, st.histCount, bx, bEnd, 116f)
+        netRow(c, "↑", st.txNow, st.txHist, st.histCount, bx, bEnd, 172f)
+
+        // --- серверы ---
+        val n = min(2, f.servers.size)
+        if (n == 0) return
+        val sw = (x1 - bEnd - gap * n) / n
+        for (i in 0 until n) {
+            val sx = bEnd + gap + i * (sw + gap)
+            fill.shader = null
+            fill.color = withA(accent, 0.32f)
+            c.drawRect(sx, 50f, sx + 1f, 198f, fill)
+            drawServer(c, f.servers[i], sx + 16f, sx + sw)
+        }
     }
+
+    /** Колонка сервера: ● ХОСТИНГ, IP, три мини-графика CPU / RAM / ROM (шкала 0–100 %). */
+    private fun drawServer(c: Canvas, s: ServerView, x: Float, end: Float) {
+        val off = s.online == false
+        val dotC = when (s.online) { true -> accent; false -> BAD_COLOR; null -> withA(accent, 0.3f) }
+        fill.shader = null; fill.color = dotC
+        if (s.online != null) fill.setShadowLayer(6f, 0f, 0f, dotC)
+        c.drawCircle(x + 3f, 64f, 3f, fill)
+        fill.clearShadowLayer()
+        text.typeface = labelFace; text.textSize = 11f; text.letterSpacing = 0.25f
+        text.color = if (off) BAD_COLOR else label
+        drawMixed(c, s.name.uppercase(), x + 12f, 68f)
+        text.letterSpacing = 0f
+
+        text.typeface = numFace; text.textSize = 11f; text.color = if (off) withA(label, 0.6f) else face
+        c.drawText(s.ip, x, 86f, text)
+        if (off) {
+            text.typeface = labelFace; text.textSize = 10f; text.letterSpacing = 0.18f; text.color = BAD_COLOR
+            c.drawText("OFFLINE", end - text.measureText("OFFLINE"), 86f, text)
+            text.letterSpacing = 0f
+        }
+
+        val m = s.metrics
+        val rows = arrayOf("CPU" to m?.cpuHist, "RAM" to m?.ramHist, "ROM" to m?.diskHist)
+        for ((k, row) in rows.withIndex()) {
+            val top = 98f + k * 34f
+            text.typeface = labelFace; text.textSize = 10f; text.letterSpacing = 0.08f; text.color = label
+            c.drawText(row.first, x, top + 17f, text)
+            text.letterSpacing = 0f
+            spark(c, row.second, x + 34f, top, end - x - 34f, 26f, off)
+        }
+    }
+
+    /** Мини-график с постоянной шкалой 0–100 %: линия, заливка, точка на последнем значении. */
+    private fun spark(c: Canvas, v: FloatArray?, x: Float, top: Float, w: Float, h: Float, dim: Boolean) {
+        fill.shader = null
+        fill.color = withA(accent, 0.07f)
+        c.drawRect(x, top, x + w, top + h, fill)
+        fill.color = withA(accent, 0.15f)
+        c.drawRect(x, top + h, x + w, top + h + 1f, fill)
+        if (v == null || v.isEmpty()) return
+        val last = v[v.size - 1]
+        val col = when { dim -> withA(label, 0.45f); last >= 90f -> BAD_COLOR; else -> accent }
+        fun py(p: Float) = top + h - (p.coerceIn(0f, 100f) / 100f) * (h - 2f)
+        path.reset()
+        if (v.size == 1) {
+            path.moveTo(x, py(last)); path.lineTo(x + w, py(last))
+        } else {
+            for (k in v.indices) {
+                val px = x + w * k / (v.size - 1)
+                if (k == 0) path.moveTo(px, py(v[k])) else path.lineTo(px, py(v[k]))
+            }
+        }
+        sparkArea.set(path)
+        sparkArea.lineTo(x + w, top + h); sparkArea.lineTo(x, top + h); sparkArea.close()
+        fill.color = withA(col, 0.16f)
+        c.drawPath(sparkArea, fill)
+        if (!dim) { line(withA(col, 0.3f), 3f); c.drawPath(path, stroke) }
+        line(col, 1.2f); c.drawPath(path, stroke)
+        fill.color = if (dim) col else Color.WHITE
+        c.drawCircle(x + w, py(last), 1.8f, fill)
+    }
+
+    private val sparkArea = Path()
 
     private fun memRow(c: Canvas, lab: String, used: Long, total: Long, x: Float, end: Float, y: Float) {
         text.typeface = labelFace; text.textSize = 10f; text.letterSpacing = 0.18f; text.color = label
@@ -527,12 +606,9 @@ class CyberRenderer {
         text.setShadowLayer(10f, 0f, 0f, withA(accent, 0.6f))
         c.drawText(v, x + 14f, y, text)
         text.clearShadowLayer()
-        val vw = text.measureText(v)
-        text.typeface = labelFace; text.textSize = 10f; text.color = label
-        c.drawText("Мбит/с", x + 18f + vw, y, text)
 
         // график
-        val gx0 = x + 138f
+        val gx0 = x + 92f
         val gw = end - gx0
         if (gw < 20f) return
         val top = y - 26f
@@ -656,118 +732,6 @@ class CyberRenderer {
         if (f.cfg.weather) drawWeather(c, f, wl, top, wl + 268f, bottom)
         drawCalendar(c, wl + 278f, top, uiR, bottom)
         if (f.cfg.converter) drawRates(c, f, uiR - 168f, bottom + 10f, uiR) else converterOnScreen.setEmpty()
-        if (f.servers.isNotEmpty()) drawServers(c, f, wl, bottom + 10f, wl + 268f)
-    }
-
-    /** Серверы под погодой, в стиле конвертера: [имя][● CPU · RAM · ROM] или OFFLINE. */
-    private fun drawServers(c: Canvas, f: FrameData, l: Float, t: Float, r: Float) {
-        val rowH = 20f; val gap = 3f; val nameW = 62f
-        f.servers.forEachIndexed { i, s ->
-            val y = t + i * (rowH + gap)
-            val base = y + 14f
-            box(c, l, y, l + nameW, y + rowH, false)
-            text.typeface = labelFace; text.textSize = 10f; text.letterSpacing = 0.08f
-            text.color = if (s.online == false) BAD_COLOR else label
-            centerMixed(c, s.name.uppercase(), l + nameW / 2f, base)
-
-            val vl = l + nameW + gap
-            box(c, vl, y, r, y + rowH, false)
-            // точка: жив / не отвечает / ещё не знаем
-            val dotC = when (s.online) { true -> accent; false -> BAD_COLOR; null -> withA(accent, 0.3f) }
-            fill.shader = null; fill.color = dotC
-            if (s.online != null) fill.setShadowLayer(6f, 0f, 0f, dotC)
-            c.drawCircle(vl + 9f, y + rowH / 2f, 2.6f, fill)
-            fill.clearShadowLayer()
-
-            val m = s.metrics
-            if (s.online == false || m == null) {
-                text.typeface = labelFace; text.textSize = 10f; text.letterSpacing = 0.18f
-                text.color = if (s.online == false) BAD_COLOR else label
-                c.drawText(if (s.online == false) "OFFLINE" else "…", vl + 20f, base, text)
-                return@forEachIndexed
-            }
-            val x0 = vl + 20f
-            val cw = (r - 6f - x0) / 3f
-            metric(c, "CPU", m.cpu, x0, x0 + cw - 8f, base)
-            metric(c, "RAM", m.ramPct, x0 + cw, x0 + 2 * cw - 8f, base)
-            metric(c, "ROM", m.diskPct, x0 + 2 * cw, r - 6f, base)
-        }
-    }
-
-    private fun metric(c: Canvas, lab: String, pct: Float, x: Float, end: Float, y: Float) {
-        text.typeface = labelFace; text.textSize = 10f; text.letterSpacing = 0.08f; text.color = label
-        c.drawText(lab, x, y, text)
-        val v = if (pct < 0f) "—" else "${pct.roundToInt()}%"
-        text.typeface = numFace; text.textSize = 11f; text.letterSpacing = 0f
-        text.color = if (pct >= 90f) BAD_COLOR else face
-        c.drawText(v, end - text.measureText(v), y, text)
-    }
-
-    private fun drawWeather(c: Canvas, f: FrameData, l: Float, t: Float, r: Float, b: Float) {
-        panel(c, l, t, r, b)
-        val w = f.weather
-        text.typeface = labelFace; text.letterSpacing = 0.25f; text.textSize = 10f; text.color = label
-        drawMixed(c, f.city.ifBlank { "ПОГОДА" }.uppercase(), l + 12f, t + 20f)
-        text.letterSpacing = 0f; text.textSize = 10f
-        if (w == null) {
-            drawMixed(c, f.weatherNote ?: "загрузка…", l + 12f, t + 36f)
-            return
-        }
-        drawMixed(c, "${w.text} · ${w.wind.roundToInt()} м/с", l + 12f, t + 36f)
-        val temp = signed(w.temp) + "°"
-        text.typeface = numFace; text.textSize = 11f; text.color = accent
-        text.setShadowLayer(8f, 0f, 0f, withA(accent, 0.6f))
-        c.drawText(temp, r - 12f - text.measureText(temp), t + 20f, text)
-        text.clearShadowLayer()
-
-        val cellW = (r - l - 24f) / 7f
-        val y0 = t + 52f
-        w.days.take(7).forEachIndexed { i, d ->
-            val cx0 = l + 12f + i * cellW
-            if (i == 0) {
-                fill.color = withA(accent, 0.1f); c.drawRect(cx0, y0, cx0 + cellW - 2f, b - 10f, fill)
-                line(withA(accent, 0.45f), 1f); c.drawRect(cx0, y0, cx0 + cellW - 2f, b - 10f, stroke)
-            }
-            val mid = cx0 + (cellW - 2f) / 2f
-            text.typeface = labelFace; text.textSize = 10f; text.letterSpacing = 0.08f; text.color = if (i == 0) accent else label
-            centerMixed(c, d.dow, mid, y0 + 16f)
-            drawWxIcon(c, d.kind, mid, y0 + 38f)
-            text.typeface = numFace; text.letterSpacing = 0f; text.textSize = 11f; text.color = accent
-            center(c, signed(d.max) + "°", mid, y0 + 70f)
-            text.textSize = 11f; text.color = label
-            center(c, signed(d.min) + "°", mid, y0 + 86f)
-        }
-    }
-
-    /** Конвертер на экране: строки [валюта][сумма]; тап по строке — ввод суммы в этой валюте. */
-    private fun drawRates(c: Canvas, f: FrameData, l: Float, t: Float, r: Float) {
-        val codes = RatesSource.parseCodes(f.cfg.currencies).take(4)
-        fxRowCodes = codes
-        val rowH = 20f; val gap = 3f; val codeW = 38f
-        val ui = f.cfg.uiScale
-        val k = ui * screenScale
-        val bottom = t + codes.size * (rowH + gap) - gap
-        converterOnScreen.set(screenOx + l * k, t * k, screenOx + r * k, bottom * k)
-        val rates = f.rates
-        codes.forEachIndexed { i, code ->
-            val y = t + i * (rowH + gap)
-            fxRowRects[i].set(screenOx + l * k, y * k, screenOx + r * k, (y + rowH) * k)
-            val active = code == f.cfg.fxFrom
-            // окошко валюты
-            box(c, l, y, l + codeW, y + rowH, false)
-            text.typeface = labelFace; text.textSize = 10f; text.letterSpacing = 0.08f
-            text.color = if (active) accent else label
-            center(c, code, l + codeW / 2f, y + 14f)
-            // окошко суммы
-            box(c, l + codeW + gap, y, r, y + rowH, active)
-            val v = rates?.convert(f.cfg.fxAmount, f.cfg.fxFrom, code)
-            val s = if (v == null) "—" else fmtMoney(v)
-            text.typeface = numFace; text.textSize = 11f; text.letterSpacing = 0f
-            text.color = face
-            if (active) text.setShadowLayer(6f, 0f, 0f, withA(accent, 0.7f))
-            c.drawText(s, r - 6f - text.measureText(s), y + 14f, text)
-            text.clearShadowLayer()
-        }
     }
 
     private fun box(c: Canvas, l: Float, t: Float, r: Float, b: Float, active: Boolean) {

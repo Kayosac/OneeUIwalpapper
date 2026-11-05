@@ -18,10 +18,13 @@ import ssl
 import sys
 import threading
 import time
+from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 CONF = os.environ.get("INFOWALL_AGENT_CONF", "/etc/infowall-agent/agent.json")
 SAMPLE_SEC = 5
+HIST_EVERY = 6             # точка истории раз в 6 замеров = 30 с
+HIST_LEN = 60              # 60 точек = последние 30 минут
 RATE_PER_MIN = 30          # запросов в минуту с одного адреса
 
 _lock = threading.Lock()
@@ -64,6 +67,8 @@ def _uptime():
 
 def sampler():
     prev = _cpu_times()
+    hist = {"cpu": deque(maxlen=HIST_LEN), "ram": deque(maxlen=HIST_LEN), "disk": deque(maxlen=HIST_LEN)}
+    acc, n = 0.0, 0
     while True:
         time.sleep(SAMPLE_SEC)
         try:
@@ -73,6 +78,13 @@ def sampler():
             cpu = 0.0 if dt <= 0 else max(0.0, min(100.0, 100.0 * (dt - di) / dt))
             mu, mt = _mem()
             du, dtot = _disk()
+            # история: CPU — среднее за 30 с, память и диск — текущие проценты
+            acc += cpu; n += 1
+            if n >= HIST_EVERY or not hist["cpu"]:
+                hist["cpu"].append(round(acc / n, 1))
+                hist["ram"].append(round(100.0 * mu / mt, 1) if mt else 0.0)
+                hist["disk"].append(round(100.0 * du / dtot, 1) if dtot else 0.0)
+                acc, n = 0.0, 0
             snap = {
                 "host": socket.gethostname(),
                 "cpu": round(cpu, 1),
@@ -81,6 +93,7 @@ def sampler():
                 "uptime": _uptime(),
                 "load": list(os.getloadavg()),
                 "at": int(time.time()),
+                "hist": {k: list(v) for k, v in hist.items()},
             }
             with _lock:
                 _snapshot.clear()

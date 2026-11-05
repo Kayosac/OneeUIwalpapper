@@ -2,6 +2,7 @@
 # Установка агента InfoWall на сервер (Ubuntu / Debian) одной командой:
 #   curl -fsSL https://raw.githubusercontent.com/Kayosac/OneeUIwalpapper/main/agent/install.sh | sudo bash
 # Свой порт:            ... | sudo PORT=9100 bash
+# Своё имя хостинга:    ... | sudo NAME=AEZA bash
 # Новые токен и сертификат: ... | sudo RESET=1 bash
 # Повторный запуск безопасен: токен, сертификат и порт сохраняются, агент обновляется.
 set -euo pipefail
@@ -125,7 +126,13 @@ done
 
 IP=$(curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')
 FP=$(openssl x509 -in "$ETC/cert.pem" -noout -fingerprint -sha256 | cut -d= -f2 | tr -d ':' | tr 'A-F' 'a-f')
-NAME=$(hostname -s | tr -cd 'A-Za-z0-9._-' | cut -c1-12)
+# название хостинга: по владельцу IP-адреса («AS24940 Hetzner Online GmbH» → HETZNER); своё — NAME=...
+if [ -z "${NAME:-}" ]; then
+  ORG=$(curl -fsS --max-time 5 "https://ipinfo.io/$IP/org" 2>/dev/null || true)
+  NAME=$(printf '%s' "$ORG" | sed -E 's/^AS[0-9]+ +//' | awk '{print $1}' | tr -d ',.')
+  [ -n "$NAME" ] || NAME=$(hostname -s)
+fi
+NAME=$(printf '%s' "$NAME" | tr -cd 'A-Za-z0-9._-' | tr 'a-z' 'A-Z' | cut -c1-12)
 
 cat <<EOF
 

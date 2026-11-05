@@ -220,7 +220,7 @@ class InfoWallpaperService : WallpaperService() {
                     st.fails >= 2 || st.lastOk == 0L || t - st.lastOk > 90_000L -> false
                     else -> true                                              // один сбой подряд — ещё не тревога
                 }
-                ServerView(conf.name, st?.metrics, online, st?.error)
+                ServerView(conf.name, conf.ip, st?.metrics, online, st?.error)
             }
         }
 

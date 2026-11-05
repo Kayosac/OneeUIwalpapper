@@ -13,12 +13,18 @@ import javax.net.ssl.TrustManager
 import javax.net.ssl.X509TrustManager
 
 /** Строка подключения из install.sh: iwa1|ИМЯ|https://IP:ПОРТ|ТОКЕН|SHA256-отпечаток. */
-data class ServerConf(val name: String, val url: String, val token: String, val fp: String)
+data class ServerConf(val name: String, val url: String, val token: String, val fp: String) {
+    /** Адрес для подписи: хост из URL без схемы и порта. */
+    val ip: String get() = url.removePrefix("https://").substringBefore('/').let {
+        if (it.startsWith("[")) it.substringAfter('[').substringBefore(']') else it.substringBeforeLast(':')
+    }
+}
 
-data class ServerMetrics(val cpu: Float, val ramPct: Float, val diskPct: Float, val uptimeSec: Long)
+/** Проценты 0–100: история за последние ~30 минут (точка раз в 30 с), последняя — текущее значение. */
+class ServerMetrics(val cpuHist: FloatArray, val ramHist: FloatArray, val diskHist: FloatArray, val uptimeSec: Long)
 
-/** Что видно на обоях: последние цифры и жив ли сервер. */
-class ServerView(val name: String, val metrics: ServerMetrics?, val online: Boolean?, val error: String?)
+/** Что видно на обоях: хостинг, IP, графики и жив ли сервер. */
+class ServerView(val name: String, val ip: String, val metrics: ServerMetrics?, val online: Boolean?, val error: String?)
 
 object Servers {
 
@@ -33,7 +39,7 @@ object Servers {
     fun parseLine(line: String): ServerConf? {
         val p = line.trim().split('|')
         if (p.size != 5 || p[0] != "iwa1") return null
-        val name = p[1].trim().take(10).ifEmpty { "VPS" }
+        val name = p[1].trim().take(12).ifEmpty { "VPS" }
         val url = p[2].trim().trimEnd('/')
         val token = p[3].trim()
         val fp = p[4].trim().lowercase().replace(":", "")
@@ -66,12 +72,20 @@ object Servers {
             val o = JSONObject(String(bytes, Charsets.UTF_8))
             fun pct(used: String, total: String): Float {
                 val t = o.optDouble(total, 0.0)
-                return if (t > 0) (o.optDouble(used, 0.0) / t * 100.0).toFloat().coerceIn(0f, 100f) else -1f
+                return if (t > 0) (o.optDouble(used, 0.0) / t * 100.0).toFloat().coerceIn(0f, 100f) else 0f
+            }
+            val hist = o.optJSONObject("hist")
+            // история из агента; если её нет (старый агент) — хотя бы текущее значение
+            fun series(key: String, now: Float): FloatArray {
+                val a = hist?.optJSONArray(key) ?: return floatArrayOf(now)
+                val n = minOf(a.length(), 120)
+                val out = FloatArray(n) { a.optDouble(a.length() - n + it, 0.0).toFloat().coerceIn(0f, 100f) }
+                return if (out.isEmpty()) floatArrayOf(now) else out
             }
             return ServerMetrics(
-                cpu = o.optDouble("cpu", -1.0).toFloat(),
-                ramPct = pct("ram_used", "ram_total"),
-                diskPct = pct("disk_used", "disk_total"),
+                cpuHist = series("cpu", o.optDouble("cpu", 0.0).toFloat()),
+                ramHist = series("ram", pct("ram_used", "ram_total")),
+                diskHist = series("disk", pct("disk_used", "disk_total")),
                 uptimeSec = o.optLong("uptime", 0L),
             )
         } finally {
