@@ -809,19 +809,19 @@ class CyberRenderer {
         val headH = 28f; val rowH = 26f; val gap = 2f
         val rows = f.steam.take(SteamTrends.ROWS)
         val b = t + headH + max(1, rows.size) * (rowH + gap) + 6f
-        val imgW = 58f; val imgH = imgW * 87f / 231f
-        val nameX = l + 8f + imgW + 10f
-        val sparkL = nameX + 170f; val sparkR = sparkL + 90f
-        val playersR = sparkR + 78f          // онлайн сейчас
-        val peakR = playersR + 76f           // пик за 24 ч
-        val ratingR = peakR + 58f            // рейтинг
-        val priceR = ratingR + 84f           // цена
+        val imgW = 52f; val imgH = imgW * 87f / 231f
+        val nameX = l + 8f + imgW + 8f
+        val sparkL = nameX + 150f; val sparkR = sparkL + 80f
+        val playersR = sparkR + 64f          // онлайн сейчас
+        val peakR = playersR + 62f           // пик за 24 ч
+        val ratingR = peakR + 50f            // рейтинг
+        val priceR = ratingR + 80f           // цена, $
         val r = priceR + 10f
         panel(c, l, t, r, b)
         // шапка
-        text.typeface = labelFace; text.textSize = 11f; text.letterSpacing = 0.18f; text.color = accent
+        text.typeface = labelFace; text.textSize = 10f; text.letterSpacing = 0.12f; text.color = accent
         c.drawText("TRENDING GAMES", nameX, t + 20f, text)
-        text.textSize = 9f; text.letterSpacing = 0.12f; text.color = label
+        text.textSize = 8f; text.letterSpacing = 0.06f; text.color = label
         center(c, "LAST 7 DAYS", (sparkL + sparkR) / 2f, t + 20f)
         for ((h, x) in listOf("NOW" to playersR, "24H PEAK" to peakR, "RATING" to ratingR, "PRICE" to priceR))
             c.drawText(h, x - text.measureText(h), t + 20f, text)
@@ -901,7 +901,7 @@ class CyberRenderer {
                 if (g.discount > 0) {
                     val d = "−${g.discount}%"
                     text.typeface = numFace; text.color = BAD_COLOR
-                    c.drawText(d, priceR - pw - 6f - text.measureText(d), base, text)
+                    c.drawText(d, priceR - pw - 4f - text.measureText(d), base, text)
                 }
             }
             steamRows += RectF(screenOx + l * k, y * k, screenOx + r * k, (y + rowH) * k)
@@ -1235,7 +1235,7 @@ class CyberRenderer {
         private const val F = 600f
         private const val CAM = 0.5617f
         private const val FOG_H = 90f
-        private const val NUM_PUNCT = ".,:%°+−-/"
+        private const val NUM_PUNCT = ".,:%°+−-/$"
 
         fun withA(c: Int, a: Float): Int =
             Color.argb((a.coerceIn(0f, 1f) * Color.alpha(c)).roundToInt(), Color.red(c), Color.green(c), Color.blue(c))

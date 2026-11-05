@@ -39,9 +39,9 @@ object SteamTrends {
     private const val WEEK_MS = 7 * 24 * 3600_000L
     private const val API = "https://api.steampowered.com/ISteamChartsService"
 
-    /** [cc] — страна магазина для цен (kz — тенге). */
+    /** [cc] — страна магазина для цен (us — доллары). */
     @Throws(IOException::class)
-    fun fetch(ctx: Context, cc: String = "kz"): List<TrendGame> {
+    fun fetch(ctx: Context, cc: String = "us"): List<TrendGame> {
         val most = JSONObject(get("$API/GetMostPlayedGames/v1/")).optJSONObject("response")?.optJSONArray("ranks")
             ?: throw IOException("Steam: пустой ответ")
         val live = HashMap<Int, Int>()
@@ -118,7 +118,7 @@ object SteamTrends {
         return (r * 100).toFloat()
     }
 
-    /** Цена в магазине страны [cc]: «1 299₸» и скидка в процентах; бесплатные — «Free». */
+    /** Цена в магазине страны [cc]: «$19.99» и скидка в процентах; бесплатные — «Free». */
     private fun price(id: Int, cc: String): Pair<String, Int>? {
         val o = JSONObject(get("https://store.steampowered.com/api/appdetails?appids=$id&cc=$cc&filters=price_overview,basic&l=english"))
             .optJSONObject(id.toString())?.optJSONObject("data") ?: return null
