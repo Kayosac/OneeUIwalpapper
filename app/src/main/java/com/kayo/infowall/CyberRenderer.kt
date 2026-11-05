@@ -814,8 +814,7 @@ class CyberRenderer {
         val sparkL = nameX + 150f; val sparkR = sparkL + 80f
         val playersR = sparkR + 64f          // онлайн сейчас
         val peakR = playersR + 62f           // пик за 24 ч
-        val ratingR = peakR + 50f            // рейтинг
-        val priceR = ratingR + 80f           // цена, $
+        val priceR = peakR + 62f             // цена, $
         val r = priceR + 10f
         panel(c, l, t, r, b)
         // шапка
@@ -823,7 +822,7 @@ class CyberRenderer {
         c.drawText("TRENDING GAMES", nameX, t + 20f, text)
         text.textSize = 8f; text.letterSpacing = 0.06f; text.color = label
         center(c, "LAST 7 DAYS", (sparkL + sparkR) / 2f, t + 20f)
-        for ((h, x) in listOf("NOW" to playersR, "24H PEAK" to peakR, "RATING" to ratingR, "PRICE" to priceR))
+        for ((h, x) in listOf("NOW" to playersR, "24H PEAK" to peakR, "PRICE" to priceR))
             c.drawText(h, x - text.measureText(h), t + 20f, text)
         text.letterSpacing = 0f
         fill.shader = null; fill.color = withA(accent, 0.32f)
@@ -884,25 +883,12 @@ class CyberRenderer {
             val pk = String.format(java.util.Locale.US, "%,d", g.peak24)
             text.textSize = 11f; text.color = face
             c.drawText(pk, peakR - text.measureText(pk), base, text)
-            // рейтинг: как у SteamDB, цветом — высокий/средний/низкий
-            val rt = g.rating
-            if (rt != null) {
-                val rs = String.format(java.util.Locale.US, "%.1f%%", rt)
-                text.color = when { rt >= 80f -> accent; rt >= 60f -> label; else -> BAD_COLOR }
-                c.drawText(rs, ratingR - text.measureText(rs), base, text)
-            }
-            // цена; со скидкой — процент скидки перед ценой
+            // цена
             val pr = g.price
             if (pr != null) {
-                text.color = if (g.discount > 0) accent else face
+                text.color = face
                 text.textSize = 10f
-                val pw = measureMixed(pr)
-                drawMixed(c, pr, priceR - pw, base)
-                if (g.discount > 0) {
-                    val d = "−${g.discount}%"
-                    text.typeface = numFace; text.color = BAD_COLOR
-                    c.drawText(d, priceR - pw - 4f - text.measureText(d), base, text)
-                }
+                drawMixed(c, pr, priceR - measureMixed(pr), base)
             }
             steamRows += RectF(screenOx + l * k, y * k, screenOx + r * k, (y + rowH) * k)
             steamIds += g.appid

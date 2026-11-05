@@ -91,7 +91,7 @@ object SteamTrends {
             val series = FloatArray(kept.length()) { kept.optJSONArray(it).optDouble(1).toFloat() }
             // пик за 24 ч: из чарта онлайна; если игры там нет — суточный пик из чарта «самых популярных»
             val peak = max(livePeak[id] ?: c.peak, players)
-            val rating = runCatching { rating(id) }.getOrNull()
+            val rating: Float? = null   // рейтинг в виджете не показывается — обзоры не запрашиваем
             val pr = runCatching { price(id, cc) }.getOrNull()
             out += TrendGame(id, name, players, peak, rating, pr?.first, pr?.second ?: 0, series, capsule(ctx, id))
         }
