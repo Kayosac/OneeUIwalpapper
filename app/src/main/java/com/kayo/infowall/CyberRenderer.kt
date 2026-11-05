@@ -868,8 +868,8 @@ class CyberRenderer {
         val b = t + headH + max(1, rows.size) * (rowH + gap) + 6f
         val imgW = 52f; val imgH = imgW * 87f / 231f
         val nameX = l + 8f + imgW + 8f
-        val sigL = nameX + 150f; val sigR = sigL + 80f
-        val playersR = sigR + 76f            // онлайн сейчас (влезает 1,284,500) или дата выхода
+        val nameEnd = nameX + 200f           // название + маленькая плашка сигнала сразу после него
+        val playersR = nameEnd + 76f         // онлайн сейчас (влезает 1,284,500) или дата выхода
         val peakR = playersR + 74f           // пик за 24 ч
         val priceR = peakR + 62f             // цена, $
         val r = priceR + 10f
@@ -893,7 +893,6 @@ class CyberRenderer {
         val k0 = f.cfg.uiScale * screenScale
         steamNextRect.set(screenOx + (icx - 18f) * k0, (t - 2f) * k0, screenOx + (icx + 18f) * k0, (t + headH) * k0)
         text.typeface = labelFace; text.textSize = 8f; text.letterSpacing = 0.06f; text.color = label
-        center(c, "SIGNAL", (sigL + sigR) / 2f, t + 20f)
         for ((h, x) in listOf("NOW" to playersR, "24H PEAK" to peakR, "PRICE" to priceR))
             c.drawText(h, x - text.measureText(h), t + 20f, text)
         text.letterSpacing = 0f
@@ -932,19 +931,20 @@ class CyberRenderer {
             if (bmp != null) c.drawBitmap(bmp, null, capDst, capPaint)
             else { fill.color = withA(accent, 0.1f); c.drawRect(capDst, fill) }
             line(withA(accent, 0.35f), 1f); c.drawRect(capDst, stroke)
-            // название
+            // название обрезается так, чтобы плашка сигнала влезла сразу после него
+            val badgeW = signalWidth(g.signal)
             text.typeface = labelFace; text.textSize = 10f; text.letterSpacing = 0.02f; text.color = face
             var name = g.name
-            val maxW = sigL - 10f - nameX
+            val maxW = nameEnd - 10f - nameX - badgeW - 5f
             if (measureMixed(name) > maxW) {
                 while (name.length > 1 && measureMixed("$name…") > maxW) name = name.dropLast(1)
                 name = "$name…"
             }
-            drawMixed(c, name, nameX, y + rowH / 2f + 4f)
-            text.letterSpacing = 0f
             val base = y + rowH / 2f + 4f
-            // сигнал: почему игра в списке — плашка по центру колонки
-            drawSignal(c, g, (sigL + sigR) / 2f, y + 5f, y + rowH - 5f)
+            val nw = drawMixed(c, name, nameX, base)
+            text.letterSpacing = 0f
+            // сигнал: маленькая плашка сразу после названия
+            drawSignal(c, g, nameX + nw + 5f, base - 8f, base + 2f)
             if (g.upcoming != null) {
                 // не вышла: вместо онлайна — дата выхода, пика нет
                 text.typeface = labelFace; text.textSize = 9f; text.letterSpacing = 0.06f; text.color = label
@@ -980,11 +980,18 @@ class CyberRenderer {
      * Плашка сигнала: NEW — заливка акцентом, ▲N — рамка, HOT — красная, WISH — белёсая рамка.
      * Цифры — шрифтом цифр, буквы — шрифтом подписей.
      */
-    private fun drawSignal(c: Canvas, g: TrendGame, cx: Float, t: Float, b: Float) {
+    private fun signalWidth(s: String): Float {
+        text.typeface = labelFace; text.textSize = 7f; text.letterSpacing = 0.08f
+        val w = measureMixed(s) + 8f
+        text.letterSpacing = 0f
+        return w
+    }
+
+    private fun drawSignal(c: Canvas, g: TrendGame, l: Float, t: Float, b: Float) {
         val s = g.signal
-        text.typeface = labelFace; text.textSize = 8.5f; text.letterSpacing = 0.1f
-        val w = measureMixed(s) + 12f
-        val l = cx - w / 2f; val r = cx + w / 2f
+        val w = signalWidth(s)
+        text.typeface = labelFace; text.textSize = 7f; text.letterSpacing = 0.08f
+        val r = l + w
         val col = when (g.kind) {
             TrendGame.K_HOT -> BAD_COLOR
             TrendGame.K_WISH -> mix(accent, Color.WHITE, 0.55f)
@@ -999,7 +1006,7 @@ class CyberRenderer {
             line(withA(col, 0.85f), 1f); c.drawRect(l, t, r, b, stroke)
             text.color = col
         }
-        drawMixed(c, s, l + 6f, (t + b) / 2f + 3f)
+        drawMixed(c, s, l + 4f, (t + b) / 2f + 2.5f)
         text.letterSpacing = 0f
     }
 
