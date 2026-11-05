@@ -39,13 +39,15 @@ class TrendGame(
  *           так выглядит внезапный хит, пока отзывы не догнали игроков;
  *  - WISH — невышедшая игра со свежей страницей (большой appid) уже высоко в Top Wishlists магазина;
  *           со второго дня — ещё и рывок по месту в Top Wishlists относительно вчера.
+ * Вышедшие игры попадают в список, только если вышли не раньше чем год назад.
  * Пул: топ-100 по онлайну, популярные новинки, лидеры продаж, топ-200 по вишлистам.
  * Отдаёт [ROWS] самых сильных сигналов; ⟳ на виджете собирает список заново.
  */
 object SteamTrends {
 
     const val ROWS = 15
-    const val MAX = 25        // кандидатов на проверку перед отбором 15
+    const val MAX = 60        // кандидатов на проверку перед отбором 15 (многие отсеются по дате выхода)
+    private const val FRESH_DAYS = 365
     private const val PREFS = "infowall_steam2"
     private const val API = "https://api.steampowered.com"
     private const val STORE = "https://store.steampowered.com"
@@ -147,7 +149,12 @@ object SteamTrends {
             if (type.isNotEmpty() && type != "game") return@pmap null
             val name = c.name.ifBlank { m?.optString("n").orEmpty() }.ifBlank { "App ${c.id}" }
             // карточку не получили — считаем вышедшей всё, кроме сигнала по вишлистам
-            val released = if (m == null) c.kind != TrendGame.K_WISH else m.optLong("r", -1L) > 0
+            val released = if (m == null) c.kind != TrendGame.K_WISH else !m.optBoolean("cs", m.optLong("r", -1L) <= 0)
+            // вышедшие — только свежие: дата выхода известна и не старше FRESH_DAYS (старые хиты, вернувшиеся в чарт, не нужны)
+            if (released) {
+                val rel = m?.optLong("r", -1L) ?: -1L
+                if (rel <= 0 || now - rel > FRESH_DAYS * DAY) return@pmap null
+            }
             val l = live[c.id]
             val n = if (!released && c.kind == TrendGame.K_WISH) -1
                 else ccu[c.id] ?: runCatching { players(c.id) }.getOrDefault(-1)
@@ -240,7 +247,7 @@ object SteamTrends {
         }
         val m = JSONObject()
             .put("t", o.optString("type")).put("n", o.optString("name"))
-            .put("r", if (soon) -1L else parseDate(dateText)).put("d", shortDate(dateText))
+            .put("r", if (soon) -1L else parseDate(dateText)).put("cs", soon).put("d", shortDate(dateText))
             .put("price", price).put("at", now)
         synchronized(meta) { meta.put(id.toString(), m) }
         return m
@@ -267,6 +274,10 @@ object SteamTrends {
         for (pat in listOf("MMM d, yyyy", "d MMM, yyyy")) {
             val d = runCatching { LocalDate.parse(s.trim(), java.time.format.DateTimeFormatter.ofPattern(pat, java.util.Locale.ENGLISH)) }.getOrNull() ?: continue
             return d.atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
+        }
+        // «Q4 2024», «2024» и т.п. — хотя бы год: 1 января этого года
+        Regex("(19|20)\\d{2}").find(s)?.value?.toIntOrNull()?.let {
+            return LocalDate.of(it, 1, 1).atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
         }
         return -1L
     }
