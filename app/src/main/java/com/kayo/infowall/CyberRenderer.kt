@@ -37,6 +37,7 @@ class FrameData(
     val city: String,
     val news: List<Headline> = emptyList(),
     val rates: Rates? = null,
+    val servers: List<ServerView> = emptyList(),
 )
 
 /**
@@ -655,6 +656,51 @@ class CyberRenderer {
         if (f.cfg.weather) drawWeather(c, f, wl, top, wl + 268f, bottom)
         drawCalendar(c, wl + 278f, top, uiR, bottom)
         if (f.cfg.converter) drawRates(c, f, uiR - 168f, bottom + 10f, uiR) else converterOnScreen.setEmpty()
+        if (f.servers.isNotEmpty()) drawServers(c, f, wl, bottom + 10f, wl + 268f)
+    }
+
+    /** Серверы под погодой, в стиле конвертера: [имя][● CPU · RAM · ROM] или OFFLINE. */
+    private fun drawServers(c: Canvas, f: FrameData, l: Float, t: Float, r: Float) {
+        val rowH = 20f; val gap = 3f; val nameW = 62f
+        f.servers.forEachIndexed { i, s ->
+            val y = t + i * (rowH + gap)
+            val base = y + 14f
+            box(c, l, y, l + nameW, y + rowH, false)
+            text.typeface = labelFace; text.textSize = 10f; text.letterSpacing = 0.08f
+            text.color = if (s.online == false) BAD_COLOR else label
+            centerMixed(c, s.name.uppercase(), l + nameW / 2f, base)
+
+            val vl = l + nameW + gap
+            box(c, vl, y, r, y + rowH, false)
+            // точка: жив / не отвечает / ещё не знаем
+            val dotC = when (s.online) { true -> accent; false -> BAD_COLOR; null -> withA(accent, 0.3f) }
+            fill.shader = null; fill.color = dotC
+            if (s.online != null) fill.setShadowLayer(6f, 0f, 0f, dotC)
+            c.drawCircle(vl + 9f, y + rowH / 2f, 2.6f, fill)
+            fill.clearShadowLayer()
+
+            val m = s.metrics
+            if (s.online == false || m == null) {
+                text.typeface = labelFace; text.textSize = 10f; text.letterSpacing = 0.18f
+                text.color = if (s.online == false) BAD_COLOR else label
+                c.drawText(if (s.online == false) "OFFLINE" else "…", vl + 20f, base, text)
+                return@forEachIndexed
+            }
+            val x0 = vl + 20f
+            val cw = (r - 6f - x0) / 3f
+            metric(c, "CPU", m.cpu, x0, x0 + cw - 8f, base)
+            metric(c, "RAM", m.ramPct, x0 + cw, x0 + 2 * cw - 8f, base)
+            metric(c, "ROM", m.diskPct, x0 + 2 * cw, r - 6f, base)
+        }
+    }
+
+    private fun metric(c: Canvas, lab: String, pct: Float, x: Float, end: Float, y: Float) {
+        text.typeface = labelFace; text.textSize = 10f; text.letterSpacing = 0.08f; text.color = label
+        c.drawText(lab, x, y, text)
+        val v = if (pct < 0f) "—" else "${pct.roundToInt()}%"
+        text.typeface = numFace; text.textSize = 11f; text.letterSpacing = 0f
+        text.color = if (pct >= 90f) BAD_COLOR else face
+        c.drawText(v, end - text.measureText(v), y, text)
     }
 
     private fun drawWeather(c: Canvas, f: FrameData, l: Float, t: Float, r: Float, b: Float) {
@@ -899,6 +945,7 @@ class CyberRenderer {
 
     companion object {
         private const val W = 1280f
+        private val BAD_COLOR = Color.rgb(255, 77, 109)   // сервер не отвечает / занято ≥ 90 %
         private const val H = 800f
         private const val CX = 640f
         private const val HZ = 519f

@@ -51,6 +51,7 @@ class SettingsActivity : Activity() {
     private lateinit var currencies: EditText
     private lateinit var swNews: Switch
     private lateinit var newsRegion: EditText
+    private lateinit var servers: EditText
     private lateinit var url: EditText
     private lateinit var token: EditText
     private lateinit var interval: EditText
@@ -126,6 +127,15 @@ class SettingsActivity : Activity() {
         newsRegion = field("RU", cfg.newsRegion, InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS)
         col += newsRegion
 
+        // --- серверы ---
+        col += header("Серверы (до ${Servers.MAX})")
+        col += label("На сервере: curl -fsSL https://raw.githubusercontent.com/Kayosac/OneeUIwalpapper/main/agent/install.sh | sudo bash — и вставь сюда строки iwa1|…, по одной на строку")
+        servers = field("iwa1|имя|https://IP:порт|токен|отпечаток", p.getString(Prefs.K_SERVERS, "").orEmpty(),
+            InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS).apply {
+            isSingleLine = false; minLines = 2; maxLines = 4
+        }
+        col += servers
+
         // --- источник ---
         col += header("Источник данных для бегущей строки (необязательно)")
         url = field("URL JSON, например http://192.168.1.10:8080/status.json", cfg.url,
@@ -198,8 +208,16 @@ class SettingsActivity : Activity() {
             accent.requestFocus()
             return false
         }
+        val srvLines = servers.text.toString().lines().map { it.trim() }.filter { it.isNotEmpty() }
+        val badSrv = srvLines.filter { Servers.parseLine(it) == null }
+        if (badSrv.isNotEmpty()) {
+            servers.error = "Не распознана строка: ${badSrv.first().take(24)}… — нужна целиком iwa1|…"
+            servers.requestFocus()
+            return false
+        }
         hideKeyboard()
         Prefs.get(this).edit()
+            .putString(Prefs.K_SERVERS, srvLines.joinToString("\n"))
             .putString(Prefs.K_ACCENT, color)
             .putInt(Prefs.K_FPS, (fps.text.toString().toIntOrNull() ?: 20).coerceIn(0, 30))
             .putFloat(Prefs.K_SHADE_SOLID, ((shadeSolid.text.toString().replace(',', '.').toFloatOrNull() ?: 9.3f) / 100f).coerceIn(0f, 0.4f))

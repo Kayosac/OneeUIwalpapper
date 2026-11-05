@@ -52,6 +52,12 @@ class InfoWallpaperService : WallpaperService() {
         private var nextRatesAt = 0L
         private var ratesBusy = false
         private var fontKey = ""
+        // серверы: отдельный поток, чтобы недоступный VPS не задерживал погоду и новости
+        private val srvIo: ExecutorService = Executors.newSingleThreadExecutor()
+        private val srvState = HashMap<String, SrvState>()
+        private var srvBusy = false
+        private var nextSrvAt = 0L
+        private var serverViews: List<ServerView> = emptyList()
         private var nextNetAt = 0L
         private var nextSlowAt = 0L
         private var lastTap = 0L
@@ -112,6 +118,7 @@ class InfoWallpaperService : WallpaperService() {
             handler.removeCallbacksAndMessages(null)
             Prefs.get(applicationContext).unregisterOnSharedPreferenceChangeListener(this)
             io.shutdownNow()
+            srvIo.shutdownNow()
             super.onDestroy()
         }
 
@@ -125,6 +132,11 @@ class InfoWallpaperService : WallpaperService() {
                 weather = null; weatherNote = null
             }
             if (old.newsRegion != cfg.newsRegion) news = emptyList()
+            if (old.servers != cfg.servers) {
+                srvState.keys.retainAll(cfg.servers.map { it.url }.toSet())
+                nextSrvAt = 0L
+                rebuildServerViews()
+            }
             nextRemoteAt = 0L
             nextWeatherAt = 0L
             nextNewsAt = 0L
@@ -146,7 +158,7 @@ class InfoWallpaperService : WallpaperService() {
                 }
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastTap < 400) {
-                    nextRemoteAt = 0L; nextWeatherAt = 0L; lastTap = 0L
+                    nextRemoteAt = 0L; nextWeatherAt = 0L; nextSrvAt = 0L; lastTap = 0L
                 } else lastTap = now
             }
             return null
@@ -162,6 +174,54 @@ class InfoWallpaperService : WallpaperService() {
             maybeFetchWeather(now)
             maybeFetchNews(now)
             maybeFetchRates(now)
+            maybeFetchServers(now)
+        }
+
+        private inner class SrvState {
+            var metrics: ServerMetrics? = null
+            var lastOk = 0L
+            var fails = 0
+            var error: String? = null
+        }
+
+        /** Опрос раз в 30 с и только пока обои видны; после сбоя — повтор через 10 с. */
+        private fun maybeFetchServers(now: Long) {
+            val list = cfg.servers
+            if (list.isEmpty() || srvBusy || now < nextSrvAt) return
+            srvBusy = true
+            try {
+                srvIo.execute {
+                    val results = list.map { it to runCatching { Servers.fetch(it) } }
+                    handler.post {
+                        srvBusy = false
+                        var anyFail = false
+                        val t = SystemClock.elapsedRealtime()
+                        for ((conf, r) in results) {
+                            val st = srvState.getOrPut(conf.url) { SrvState() }
+                            r.onSuccess { st.metrics = it; st.lastOk = t; st.fails = 0; st.error = null }
+                                .onFailure { st.fails++; st.error = it.message ?: it.javaClass.simpleName; anyFail = true }
+                        }
+                        rebuildServerViews()
+                        nextSrvAt = t + if (anyFail) 10_000L else 30_000L
+                    }
+                }
+            } catch (_: Exception) {
+                srvBusy = false
+            }
+        }
+
+        private fun rebuildServerViews() {
+            val t = SystemClock.elapsedRealtime()
+            serverViews = cfg.servers.map { conf ->
+                val st = srvState[conf.url]
+                val online = when {
+                    st == null -> null                                        // ещё не опрашивали
+                    st.fails == 0 && st.lastOk > 0 -> true
+                    st.fails >= 2 || st.lastOk == 0L || t - st.lastOk > 90_000L -> false
+                    else -> true                                              // один сбой подряд — ещё не тревога
+                }
+                ServerView(conf.name, st?.metrics, online, st?.error)
+            }
         }
 
         private fun maybeFetchRemote(now: Long) {
@@ -274,7 +334,7 @@ class InfoWallpaperService : WallpaperService() {
             try {
                 c = holder.lockHardwareCanvas() ?: return
                 val t = (SystemClock.elapsedRealtime() - startedAt) / 1000f
-                val fd = FrameData(cfg, if (cfg.fps <= 0) 0f else t, stats, remote, remoteError, weather, weatherNote, cfg.city, news, rates)
+                val fd = FrameData(cfg, if (cfg.fps <= 0) 0f else t, stats, remote, remoteError, weather, weatherNote, cfg.city, news, rates, serverViews)
                 if (Build.VERSION.SDK_INT >= 31 && cfg.glow > 0f && c.isHardwareAccelerated) drawWithBloom(c, fd)
                 else renderer.draw(c, width, height, fd)
                 // чёрный низ — поверх всего, включая свечение

@@ -47,6 +47,7 @@ data class Config(
     val lat: Double?,
     val lon: Double?,
     val city: String,
+    val servers: List<ServerConf>,
 )
 
 object Prefs {
@@ -75,6 +76,7 @@ object Prefs {
     const val K_LAT = "lat"
     const val K_LON = "lon"
     const val K_CITY = "city"
+    const val K_SERVERS = "servers"
 
     const val MIN_INTERVAL = 15
     const val DEFAULT_ACCENT = "#00E5FF"
@@ -113,6 +115,7 @@ object Prefs {
             lat = lat,
             lon = lon,
             city = p.getString(K_CITY, "").orEmpty(),
+            servers = Servers.parse(p.getString(K_SERVERS, "").orEmpty()),
         )
     }
 
