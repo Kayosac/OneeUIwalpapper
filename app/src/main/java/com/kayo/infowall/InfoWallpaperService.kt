@@ -54,6 +54,8 @@ class InfoWallpaperService : WallpaperService() {
         private var fontKey = ""
         // серверы: отдельный поток, чтобы недоступный VPS не задерживал погоду и новости
         private val srvIo: ExecutorService = Executors.newSingleThreadExecutor()
+        private val steamIo: ExecutorService = Executors.newSingleThreadExecutor()
+        private var steamPage = 0
         private val srvState = HashMap<String, SrvState>()
         private var srvBusy = false
         private var nextSrvAt = 0L
@@ -127,6 +129,7 @@ class InfoWallpaperService : WallpaperService() {
             Prefs.get(applicationContext).unregisterOnSharedPreferenceChangeListener(this)
             io.shutdownNow()
             srvIo.shutdownNow()
+            steamIo.shutdownNow()
             super.onDestroy()
         }
 
@@ -227,13 +230,14 @@ class InfoWallpaperService : WallpaperService() {
                     "calendar" -> { openCalendar(); return@run }
                     "goals" -> { launchFirst(android.content.Intent(applicationContext, GoalsActivity::class.java)); return@run }
                     "update" -> { launchFirst(android.content.Intent(applicationContext, SettingsActivity::class.java)); return@run }
+                    "steamnext" -> { nextSteamPage(); return@run }
                     null -> {}
                     else -> {
                         val h = hit ?: ""
                         // игра — страница в Steam в Chrome; сервер — личный кабинет хостинга в Chrome
                         val url = when {
                             h.isEmpty() -> null
-                            h.startsWith("steam:") -> h.removePrefix("steam:").toIntOrNull()?.let { "https://store.steampowered.com/app/$it/" }
+                            h.startsWith("steam:") -> h.removePrefix("steam:").toIntOrNull()?.let { "https://steamdb.info/app/$it/" }
                             h.startsWith("srv:") -> h.removePrefix("srv:").toIntOrNull()?.let { serverViews.getOrNull(it)?.panel }
                             else -> null
                         }
@@ -281,19 +285,34 @@ class InfoWallpaperService : WallpaperService() {
             }
         }
 
-        /** Trending Games: раз в 30 минут и только пока обои видны. */
+        /**
+         * Детектор взлётов Steam: раз в час и только пока обои видны. Отдельный поток — первый сбор
+         * (карточки и отзывы ~150 игр) идёт минуту-две и не должен задерживать погоду и новости.
+         */
         private fun maybeFetchSteam(now: Long) {
             if (!cfg.steam || steamBusy || now < nextSteamAt) return
             steamBusy = true
             val ctx = applicationContext
-            submit {
-                val r = runCatching { SteamTrends.fetch(ctx) }
-                handler.post {
-                    steamBusy = false
-                    r.onSuccess { steam = it; steamNote = null }.onFailure { steamNote = it.message ?: "нет связи" }
-                    nextSteamAt = SystemClock.elapsedRealtime() + if (r.isSuccess) 30 * 60_000L else 5 * 60_000L
+            try {
+                steamIo.execute {
+                    val r = runCatching { SteamTrends.fetch(ctx) }
+                    handler.post {
+                        steamBusy = false
+                        r.onSuccess { steam = it; steamNote = null; steamPage = steamPage.coerceAtMost((it.size - 1) / SteamTrends.ROWS) }
+                            .onFailure { steamNote = it.message ?: "нет связи" }
+                        nextSteamAt = SystemClock.elapsedRealtime() + if (r.isSuccess) 60 * 60_000L else 5 * 60_000L
+                    }
                 }
+            } catch (_: Exception) {
+                steamBusy = false
             }
+        }
+
+        /** ⟳ в шапке виджета: следующие 15 игр; после последней страницы — свежий сбор и снова первая. */
+        private fun nextSteamPage() {
+            val pages = maxOf(1, (steam.size + SteamTrends.ROWS - 1) / SteamTrends.ROWS)
+            steamPage = (steamPage + 1) % pages
+            if (steamPage == 0) nextSteamAt = 0L
         }
 
         private inner class SrvState {
@@ -548,7 +567,7 @@ class InfoWallpaperService : WallpaperService() {
             try {
                 c = holder.lockHardwareCanvas() ?: return
                 val t = (SystemClock.elapsedRealtime() - startedAt) / 1000f
-                val fd = FrameData(cfg, if (cfg.fps <= 0) 0f else t, stats, remote, remoteError, weather, weatherNote, cfg.city, news, rates, serverViews, fxEdit, steam, steamNote, updateName)
+                val fd = FrameData(cfg, if (cfg.fps <= 0) 0f else t, stats, remote, remoteError, weather, weatherNote, cfg.city, news, rates, serverViews, fxEdit, steam, steamNote, updateName, steamPage)
                 if (Build.VERSION.SDK_INT >= 31 && cfg.glow > 0f && c.isHardwareAccelerated) drawWithBloom(c, fd)
                 else renderer.draw(c, width, height, fd)
                 // чёрный низ — поверх всего, включая свечение

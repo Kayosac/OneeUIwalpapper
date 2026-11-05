@@ -42,6 +42,7 @@ class FrameData(
     val steam: List<TrendGame> = emptyList(),
     val steamNote: String? = null,
     val update: String? = null,
+    val steamPage: Int = 0,
 )
 
 /**
@@ -98,6 +99,7 @@ class CyberRenderer {
         !clockOnScreen.isEmpty && clockOnScreen.contains(x, y) -> "clock"
         !calendarOnScreen.isEmpty && calendarOnScreen.contains(x, y) -> "calendar"
         !goalsOnScreen.isEmpty && goalsOnScreen.contains(x, y) -> "goals"
+        !steamNextRect.isEmpty && steamNextRect.contains(x, y) -> "steamnext"
         else -> steamRows.indices.firstOrNull { steamRows[it].contains(x, y) }?.let { "steam:${steamIds[it]}" }
             ?: srvRects.indices.firstOrNull { srvRects[it].contains(x, y) }?.let { "srv:$it" }
     }
@@ -250,7 +252,7 @@ class CyberRenderer {
         drawHud(c, f)
         drawTicker(c, f)
         drawWeatherAndCalendar(c, f)
-        if (cfg.steam) drawSteam(c, f) else steamRows.clear()
+        if (cfg.steam) drawSteam(c, f) else { steamRows.clear(); steamNextRect.setEmpty() }
         c.restore()
 
         c.restore()
@@ -852,25 +854,44 @@ class CyberRenderer {
      * Таблица как на главной SteamDB: [обложка][Trending Games][Last 7 days][Players Now],
      * обложки — монохром в цвет акцента, чтобы не спорить со стилем.
      */
+    private val steamNextRect = RectF()
+
     private fun drawSteam(c: Canvas, f: FrameData) {
-        // компактно: обложка · название · график · онлайн без пустых промежутков
+        // компактно: обложка · название · сигнал · онлайн · пик · цена
         val l = 48f; val t = 304f
         val headH = 28f; val rowH = 26f; val gap = 2f
-        val rows = f.steam.take(SteamTrends.ROWS)
+        val pages = max(1, (f.steam.size + SteamTrends.ROWS - 1) / SteamTrends.ROWS)
+        val page = f.steamPage.coerceIn(0, pages - 1)
+        val rows = f.steam.drop(page * SteamTrends.ROWS).take(SteamTrends.ROWS)
         val b = t + headH + max(1, rows.size) * (rowH + gap) + 6f
         val imgW = 52f; val imgH = imgW * 87f / 231f
         val nameX = l + 8f + imgW + 8f
-        val sparkL = nameX + 150f; val sparkR = sparkL + 80f
-        val playersR = sparkR + 76f          // онлайн сейчас (влезает 1,284,500)
+        val sigL = nameX + 150f; val sigR = sigL + 80f
+        val playersR = sigR + 76f            // онлайн сейчас (влезает 1,284,500) или дата выхода
         val peakR = playersR + 74f           // пик за 24 ч
         val priceR = peakR + 62f             // цена, $
         val r = priceR + 10f
         panel(c, l, t, r, b)
-        // шапка
+        // шапка: TRENDING · страница · ⟳ (следующие 15)
         text.typeface = labelFace; text.textSize = 10f; text.letterSpacing = 0.12f; text.color = accent
-        c.drawText("POPULAR RELEASES", nameX, t + 20f, text)
-        text.textSize = 8f; text.letterSpacing = 0.06f; text.color = label
-        center(c, "LAST 7 DAYS", (sparkL + sparkR) / 2f, t + 20f)
+        c.drawText("TRENDING", nameX, t + 20f, text)
+        val tw = text.measureText("TRENDING")
+        text.typeface = numFace; text.letterSpacing = 0f; text.textSize = 9f; text.color = label
+        val pg = "${page + 1}/$pages"
+        c.drawText(pg, nameX + tw + 10f, t + 20f, text)
+        // значок обновления: дуга со стрелкой
+        val icx = nameX + tw + 10f + text.measureText(pg) + 16f; val icy = t + 16f; val ir = 5.5f
+        rect.set(icx - ir, icy - ir, icx + ir, icy + ir)
+        stroke.strokeCap = Paint.Cap.ROUND
+        line(accent, 1.6f); c.drawArc(rect, -60f, 290f, false, stroke)
+        val ax = icx + ir * cos(Math.toRadians(-60.0)).toFloat(); val ay = icy + ir * sin(Math.toRadians(-60.0)).toFloat()
+        path.reset(); path.moveTo(ax - 3.5f, ay - 1.5f); path.lineTo(ax + 0.5f, ay); path.lineTo(ax + 0.5f, ay - 4f)
+        c.drawPath(path, stroke)
+        stroke.strokeCap = Paint.Cap.BUTT
+        val k0 = f.cfg.uiScale * screenScale
+        steamNextRect.set(screenOx + (icx - 18f) * k0, (t - 2f) * k0, screenOx + (icx + 18f) * k0, (t + headH) * k0)
+        text.typeface = labelFace; text.textSize = 8f; text.letterSpacing = 0.06f; text.color = label
+        center(c, "SIGNAL", (sigL + sigR) / 2f, t + 20f)
         for ((h, x) in listOf("NOW" to playersR, "24H PEAK" to peakR, "PRICE" to priceR))
             c.drawText(h, x - text.measureText(h), t + 20f, text)
         text.letterSpacing = 0f
@@ -912,26 +933,35 @@ class CyberRenderer {
             // название
             text.typeface = labelFace; text.textSize = 10f; text.letterSpacing = 0.02f; text.color = face
             var name = g.name
-            val maxW = sparkL - 10f - nameX
+            val maxW = sigL - 10f - nameX
             if (measureMixed(name) > maxW) {
                 while (name.length > 1 && measureMixed("$name…") > maxW) name = name.dropLast(1)
                 name = "$name…"
             }
             drawMixed(c, name, nameX, y + rowH / 2f + 4f)
             text.letterSpacing = 0f
-            // график за 7 дней (наш)
-            spark7(c, g.hist, sparkL, y + 5f, sparkR - sparkL, rowH - 10f)
-            // онлайн
-            val v = String.format(java.util.Locale.US, "%,d", g.players)
-            text.typeface = numFace; text.textSize = 12f; text.color = accent
-            text.setShadowLayer(6f, 0f, 0f, withA(accent, 0.6f))
-            c.drawText(v, playersR - text.measureText(v), y + rowH / 2f + 4f, text)
-            text.clearShadowLayer()
             val base = y + rowH / 2f + 4f
-            // пик за 24 ч
-            val pk = String.format(java.util.Locale.US, "%,d", g.peak24)
-            text.textSize = 11f; text.color = face
-            c.drawText(pk, peakR - text.measureText(pk), base, text)
+            // сигнал: почему игра в списке — плашка по центру колонки
+            drawSignal(c, g, (sigL + sigR) / 2f, y + 5f, y + rowH - 5f)
+            if (g.upcoming != null) {
+                // не вышла: вместо онлайна — дата выхода, пика нет
+                text.typeface = labelFace; text.textSize = 9f; text.letterSpacing = 0.06f; text.color = label
+                drawMixed(c, g.upcoming, playersR - measureMixed(g.upcoming), base)
+                text.letterSpacing = 0f
+                text.typeface = numFace; text.textSize = 11f; text.color = withA(label, 0.5f)
+                c.drawText("—", peakR - text.measureText("—"), base, text)
+            } else {
+                // онлайн
+                val v = if (g.players >= 0) String.format(java.util.Locale.US, "%,d", g.players) else "—"
+                text.typeface = numFace; text.textSize = 12f; text.color = accent
+                text.setShadowLayer(6f, 0f, 0f, withA(accent, 0.6f))
+                c.drawText(v, playersR - text.measureText(v), base, text)
+                text.clearShadowLayer()
+                // пик за 24 ч
+                val pk = if (g.peak24 >= 0) String.format(java.util.Locale.US, "%,d", g.peak24) else "—"
+                text.textSize = 11f; text.color = face
+                c.drawText(pk, peakR - text.measureText(pk), base, text)
+            }
             // цена
             val pr = g.price
             if (pr != null) {
@@ -944,25 +974,31 @@ class CyberRenderer {
         }
     }
 
-    private fun spark7(c: Canvas, v: FloatArray, x: Float, top: Float, w: Float, h: Float) {
-        fill.color = withA(accent, 0.15f); c.drawRect(x, top + h, x + w, top + h + 1f, fill)
-        if (v.size < 2) {
-            // одна точка — линии ещё нет: подпись вместо пустоты
-            text.typeface = labelFace; text.textSize = 8f; text.letterSpacing = 0.1f; text.color = withA(label, 0.6f)
-            center(c, "СБОР ДАННЫХ", x + w / 2f, top + h / 2f + 3f)
-            text.letterSpacing = 0f
-            return
+    /**
+     * Плашка сигнала: NEW — заливка акцентом, ▲N — рамка, HOT — красная, WISH — белёсая рамка.
+     * Цифры — шрифтом цифр, буквы — шрифтом подписей.
+     */
+    private fun drawSignal(c: Canvas, g: TrendGame, cx: Float, t: Float, b: Float) {
+        val s = g.signal
+        text.typeface = labelFace; text.textSize = 8.5f; text.letterSpacing = 0.1f
+        val w = measureMixed(s) + 12f
+        val l = cx - w / 2f; val r = cx + w / 2f
+        val col = when (g.kind) {
+            TrendGame.K_HOT -> BAD_COLOR
+            TrendGame.K_WISH -> mix(accent, Color.WHITE, 0.55f)
+            else -> accent
         }
-        var lo = v[0]; var hi = v[0]
-        for (p in v) { lo = min(lo, p); hi = max(hi, p) }
-        val span = max(1f, hi - lo)
-        fun py(p: Float) = top + h - 2f - (p - lo) / span * (h - 4f)
-        path.reset()
-        if (v.size == 1) { path.moveTo(x, py(v[0])); path.lineTo(x + w, py(v[0])) }
-        else for (i in v.indices) { val px = x + w * i / (v.size - 1); if (i == 0) path.moveTo(px, py(v[i])) else path.lineTo(px, py(v[i])) }
-        line(withA(accent, 0.3f), 3f); c.drawPath(path, stroke)
-        line(accent, 1.2f); c.drawPath(path, stroke)
-        fill.color = Color.WHITE; c.drawCircle(x + w, py(v[v.size - 1]), 1.8f, fill)
+        fill.shader = null
+        if (g.kind == TrendGame.K_NEW) {
+            fill.color = col; fill.setShadowLayer(8f, 0f, 0f, withA(col, 0.8f)); c.drawRect(l, t, r, b, fill); fill.clearShadowLayer()
+            text.color = Color.BLACK
+        } else {
+            fill.color = withA(col, 0.12f); c.drawRect(l, t, r, b, fill)
+            line(withA(col, 0.85f), 1f); c.drawRect(l, t, r, b, stroke)
+            text.color = col
+        }
+        drawMixed(c, s, l + 6f, (t + b) / 2f + 3f)
+        text.letterSpacing = 0f
     }
 
     private fun drawWeather(c: Canvas, f: FrameData, l: Float, t: Float, r: Float, b: Float) {
