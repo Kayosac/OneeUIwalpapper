@@ -20,8 +20,6 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
-import android.widget.RadioButton
-import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
@@ -43,9 +41,6 @@ class SettingsActivity : Activity() {
     private lateinit var zones: EditText
     private lateinit var swWeather: Switch
     private lateinit var placeStatus: TextView
-    private lateinit var fontGroup: RadioGroup
-    private val fontIds = HashMap<FontPreset, Int>()
-    private lateinit var fontStatus: TextView
     private lateinit var swConverter: Switch
     private lateinit var curList: LinearLayout
     private val curCodes = ArrayList<String>()
@@ -83,19 +78,6 @@ class SettingsActivity : Activity() {
         shadeFade = field("11.2", trim(cfg.shadeFade * 100f), InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL); col += shadeFade
         col += label("Поворот камеры, ° (0–34)")
         yaw = field("24", cfg.yawDeg.toInt().toString(), InputType.TYPE_CLASS_NUMBER); col += yaw
-
-        // --- шрифт ---
-        col += header("Шрифт")
-        fontGroup = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL }
-        for (fp in FontPreset.values()) {
-            val id = View.generateViewId()
-            fontIds[fp] = id
-            fontGroup.addView(RadioButton(this).apply { this.id = id; text = fp.title; minHeight = dp(44) })
-        }
-        fontGroup.check(fontIds.getValue(cfg.font))
-        col += fontGroup
-        col += button("Выбрать свой шрифт (.ttf / .otf)") { pickFont() }
-        fontStatus = status(""); col += fontStatus
 
         // --- часы ---
         col += header("Часовые пояса")
@@ -159,42 +141,6 @@ class SettingsActivity : Activity() {
 
     // ---------- сохранение ----------
 
-    private fun selectedFont(): FontPreset =
-        fontIds.entries.firstOrNull { it.value == fontGroup.checkedRadioButtonId }?.key ?: FontPreset.FINAL
-
-    private fun pickFont() {
-        val i = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            type = "*/*"
-        }
-        try {
-            startActivityForResult(i, REQ_FONT)
-        } catch (_: ActivityNotFoundException) {
-            toast("Нет приложения для выбора файлов")
-        }
-    }
-
-    private fun importFont(uri: Uri) {
-        fontStatus.text = "Загружаю шрифт…"
-        Thread {
-            val msg = try {
-                val bytes = contentResolver.openInputStream(uri)?.use { Fonts.readLimited(it, 30L * 1024 * 1024) }
-                    ?: throw java.io.IOException("не открыть файл")
-                Fonts.importCustom(this, bytes)
-                val p = Prefs.get(this)
-                p.edit()
-                    .putString(Prefs.K_FONT, FontPreset.CUSTOM.name)
-                    .putInt(Prefs.K_FONT_VER, p.getInt(Prefs.K_FONT_VER, 0) + 1)
-                    .apply()
-                runOnUiThread { fontGroup.check(fontIds.getValue(FontPreset.CUSTOM)) }
-                "Готово — свой шрифт уже на обоях"
-            } catch (e: Exception) {
-                "Ошибка: ${e.message ?: e.javaClass.simpleName}"
-            }
-            runOnUiThread { if (!isFinishing) fontStatus.text = msg }
-        }.start()
-    }
-
     private fun save(): Boolean {
         val u = url.text.toString().trim()
         if (u.isNotEmpty() && !(u.startsWith("http://") || u.startsWith("https://"))) {
@@ -226,7 +172,6 @@ class SettingsActivity : Activity() {
             .putFloat(Prefs.K_YAW, (yaw.text.toString().toFloatOrNull() ?: 24f).coerceIn(0f, 34f))
             .putString(Prefs.K_ZONES, zones.text.toString().trim())
             .putBoolean(Prefs.K_WEATHER, swWeather.isChecked)
-            .putString(Prefs.K_FONT, selectedFont().name)
             .putBoolean(Prefs.K_CONVERTER, swConverter.isChecked)
             .putBoolean(Prefs.K_NEWS, swNews.isChecked)
             .putString(Prefs.K_NEWS_REGION, newsRegion.text.toString().trim().uppercase().filter { it.isLetter() }.take(2).ifEmpty { "RU" })
@@ -349,15 +294,6 @@ class SettingsActivity : Activity() {
         }
     }
 
-    // ---------- модель ----------
-
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (resultCode != RESULT_OK) return
-        val uri: Uri = data?.data ?: return
-        if (requestCode == REQ_FONT) { importFont(uri); return }
-    }
-
     // ---------- источник ----------
 
     private fun testSource() {
@@ -452,6 +388,5 @@ class SettingsActivity : Activity() {
 
     companion object {
         private const val REQ_LOCATION = 41
-        private const val REQ_FONT = 43
     }
 }
