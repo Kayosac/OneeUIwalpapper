@@ -52,7 +52,14 @@ class CyberRenderer {
 
     // ---------- кисти ----------
     private val mono = Typeface.create(Typeface.MONOSPACE, Typeface.NORMAL)
-    private val monoBold = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+    private var numFace: Typeface = mono
+    private var labelFace: Typeface = mono
+
+    /** Шрифт цифр (часы, значения) и шрифт подписей (кириллица). */
+    fun setFonts(num: Typeface, label: Typeface) {
+        numFace = num
+        labelFace = label
+    }
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = mono }
@@ -402,7 +409,7 @@ class CyberRenderer {
     private fun drawClock(c: Canvas, f: FrameData) {
         val x = 78f
         val base = 150f
-        text.typeface = mono
+        text.typeface = numFace
         text.textSize = 124f
         text.letterSpacing = 0f
         val full = "$hh:$mm"
@@ -442,10 +449,10 @@ class CyberRenderer {
         var zx = 80f
         val zy = 198f
         for ((lab, time) in zoneTimes) {
-            text.textSize = 11f; text.letterSpacing = 0.18f; text.color = label
+            text.typeface = labelFace; text.textSize = 11f; text.letterSpacing = 0.18f; text.color = label
             c.drawText(lab, zx, zy, text)
             zx += text.measureText(lab) + 8f
-            text.textSize = 24f; text.letterSpacing = 0f; text.color = accent
+            text.typeface = numFace; text.textSize = 24f; text.letterSpacing = 0f; text.color = accent
             text.setShadowLayer(10f, 0f, 0f, withA(accent, 0.65f))
             c.drawText(time, zx, zy, text)
             text.clearShadowLayer()
@@ -496,10 +503,10 @@ class CyberRenderer {
     }
 
     private fun memRow(c: Canvas, lab: String, used: Long, total: Long, x: Float, end: Float, y: Float) {
-        text.typeface = mono; text.textSize = 11f; text.letterSpacing = 0.18f; text.color = label
+        text.typeface = labelFace; text.textSize = 11f; text.letterSpacing = 0.18f; text.color = label
         c.drawText(lab, x, y, text)
         val v = if (total > 0) "${gb(used)}/${gb(total)}" else "—"
-        text.textSize = 16f; text.letterSpacing = 0f; text.color = accent
+        text.typeface = numFace; text.textSize = 16f; text.letterSpacing = 0f; text.color = accent
         val vw = text.measureText(v)
         text.setShadowLayer(8f, 0f, 0f, withA(accent, 0.6f))
         c.drawText(v, end - vw, y, text)
@@ -517,16 +524,16 @@ class CyberRenderer {
     }
 
     private fun netRow(c: Canvas, arrow: String, now: Float, hist: FloatArray, count: Int, x: Float, end: Float, y: Float) {
-        text.typeface = mono; text.letterSpacing = 0f
+        text.typeface = labelFace; text.letterSpacing = 0f
         text.textSize = 14f; text.color = label
         c.drawText(arrow, x, y, text)
         val v = fmtSpeed(now)
-        text.textSize = 22f; text.color = accent
+        text.typeface = numFace; text.textSize = 22f; text.color = accent
         text.setShadowLayer(10f, 0f, 0f, withA(accent, 0.6f))
         c.drawText(v, x + 14f, y, text)
         text.clearShadowLayer()
         val vw = text.measureText(v)
-        text.textSize = 10f; text.color = label
+        text.typeface = labelFace; text.textSize = 10f; text.color = label
         c.drawText("Мбит/с", x + 18f + vw, y, text)
 
         // график
@@ -578,7 +585,7 @@ class CyberRenderer {
             else -> (f.remote?.title?.let { "${it.uppercase()} ▸ " } ?: "ИСТОЧНИК ▸ ") +
                 items.joinToString("   //   ") { "${it.label.uppercase()}: ${it.value}" + if (it.state == State.BAD || it.state == State.WARN) " [!]" else "" }
         } + "   //   "
-        text.typeface = mono; text.textSize = 15f; text.letterSpacing = 0.12f; text.color = accent
+        text.typeface = labelFace; text.textSize = 15f; text.letterSpacing = 0.12f; text.color = accent
         val tw = text.measureText(msg)
         if (tw <= 0f) return
         c.save()
@@ -612,7 +619,7 @@ class CyberRenderer {
     private fun drawWeather(c: Canvas, f: FrameData, l: Float, t: Float, r: Float, b: Float) {
         panel(c, l, t, r, b)
         val w = f.weather
-        text.typeface = mono; text.letterSpacing = 0.25f; text.textSize = 10f; text.color = label
+        text.typeface = labelFace; text.letterSpacing = 0.25f; text.textSize = 10f; text.color = label
         c.drawText(f.city.ifBlank { "ПОГОДА" }.uppercase(), l + 12f, t + 20f, text)
         text.letterSpacing = 0f; text.textSize = 11f
         if (w == null) {
@@ -621,7 +628,7 @@ class CyberRenderer {
         }
         c.drawText("${w.text} · ${w.wind.roundToInt()} м/с", l + 12f, t + 36f, text)
         val temp = signed(w.temp) + "°"
-        text.textSize = 32f; text.color = accent
+        text.typeface = numFace; text.textSize = 32f; text.color = accent
         text.setShadowLayer(12f, 0f, 0f, withA(accent, 0.6f))
         c.drawText(temp, r - 12f - text.measureText(temp), t + 38f, text)
         text.clearShadowLayer()
@@ -635,10 +642,10 @@ class CyberRenderer {
                 line(withA(accent, 0.45f), 1f); c.drawRect(cx0, y0, cx0 + cellW - 2f, b - 10f, stroke)
             }
             val mid = cx0 + (cellW - 2f) / 2f
-            text.textSize = 10f; text.letterSpacing = 0.08f; text.color = if (i == 0) accent else label
+            text.typeface = labelFace; text.textSize = 10f; text.letterSpacing = 0.08f; text.color = if (i == 0) accent else label
             center(c, d.dow, mid, y0 + 16f)
             drawWxIcon(c, d.kind, mid, y0 + 38f)
-            text.letterSpacing = 0f; text.textSize = 13f; text.color = accent
+            text.typeface = numFace; text.letterSpacing = 0f; text.textSize = 13f; text.color = accent
             center(c, signed(d.max) + "°", mid, y0 + 70f)
             text.textSize = 11f; text.color = label
             center(c, signed(d.min) + "°", mid, y0 + 86f)
@@ -685,7 +692,7 @@ class CyberRenderer {
 
     private fun drawCalendar(c: Canvas, l: Float, t: Float, r: Float, b: Float) {
         panel(c, l, t, r, b)
-        text.typeface = mono; text.textSize = 10f; text.letterSpacing = 0.25f
+        text.typeface = labelFace; text.textSize = 10f; text.letterSpacing = 0.25f
         text.color = accent
         c.drawText(monthTitle, l + 10f, t + 20f, text)
         text.color = label
@@ -696,7 +703,7 @@ class CyberRenderer {
         for (k in 0 until 7) center(c, wd[k], l + 10f + cw * k + cw / 2f, t + 36f)
         val rowH = 18f
         val gy0 = t + 42f
-        text.typeface = mono; text.textSize = 11f
+        text.typeface = numFace; text.textSize = 11f
         for (d in 1..calDays) {
             val idx = calStartCol + d - 1
             val col = idx % 7; val row = idx / 7
@@ -708,25 +715,25 @@ class CyberRenderer {
                 fill.setShadowLayer(10f, 0f, 0f, accent)
                 c.drawRect(cx0 + 1f, cy0, cx0 + cw - 1f, cy0 + rowH, fill)
                 fill.clearShadowLayer()
-                text.color = Color.BLACK; text.typeface = monoBold
+                text.color = Color.BLACK; text.isFakeBoldText = true
             } else {
-                text.color = if (col >= 5) label else accent; text.typeface = mono
+                text.color = if (col >= 5) label else accent
             }
             center(c, d.toString(), mid, cy0 + 13f)
+            text.isFakeBoldText = false
         }
-        text.typeface = mono
     }
 
     // ================= утилиты =================
 
     private fun caption(c: Canvas, s: String, x: Float, y: Float) {
-        text.typeface = mono; text.textSize = 12f; text.letterSpacing = 0.25f; text.color = label
+        text.typeface = labelFace; text.textSize = 12f; text.letterSpacing = 0.25f; text.color = label
         c.drawText(s, x, y, text)
         text.letterSpacing = 0f
     }
 
     private fun value(c: Canvas, s: String, x: Float, y: Float, size: Float) {
-        text.typeface = mono; text.textSize = size; text.letterSpacing = 0f; text.color = accent
+        text.typeface = numFace; text.textSize = size; text.letterSpacing = 0f; text.color = accent
         text.setShadowLayer(12f, 0f, 0f, withA(accent, 0.65f))
         c.drawText(s, x, y, text)
         text.clearShadowLayer()

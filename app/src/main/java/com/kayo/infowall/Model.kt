@@ -32,6 +32,8 @@ data class Config(
     val accent: Int,
     val fps: Int,
     val glow: Float,
+    val font: FontPreset,
+    val fontVersion: Int,
     val yawDeg: Float,
     val zones: List<Zone>,
     val weather: Boolean,
@@ -53,6 +55,8 @@ object Prefs {
     const val K_ACCENT = "accent"
     const val K_FPS = "fps"
     const val K_GLOW = "glow"
+    const val K_FONT = "font"
+    const val K_FONT_VER = "font_ver"
     const val K_YAW = "yaw"
     const val K_ZONES = "zones"
     const val K_WEATHER = "weather"
@@ -83,6 +87,8 @@ object Prefs {
             accent = parseColor(p.getString(K_ACCENT, DEFAULT_ACCENT)),
             fps = p.getInt(K_FPS, 20).coerceIn(0, 30),
             glow = p.getFloat(K_GLOW, 1f).coerceIn(0f, 2f),
+            font = runCatching { FontPreset.valueOf(p.getString(K_FONT, "DOTO_GEIST")!!) }.getOrDefault(FontPreset.DOTO_GEIST),
+            fontVersion = p.getInt(K_FONT_VER, 0),
             yawDeg = p.getFloat(K_YAW, 24f).coerceIn(0f, 34f),
             zones = parseZones(p.getString(K_ZONES, DEFAULT_ZONES).orEmpty()),
             weather = p.getBoolean(K_WEATHER, true),

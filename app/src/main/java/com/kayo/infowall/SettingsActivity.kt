@@ -41,6 +41,9 @@ class SettingsActivity : Activity() {
     private lateinit var zones: EditText
     private lateinit var swWeather: Switch
     private lateinit var placeStatus: TextView
+    private lateinit var fontGroup: RadioGroup
+    private val fontIds = HashMap<FontPreset, Int>()
+    private lateinit var fontStatus: TextView
     private lateinit var modelGroup: RadioGroup
     private val modelIds = HashMap<ModelSource, Int>()
     private lateinit var modelSpeed: EditText
@@ -74,6 +77,19 @@ class SettingsActivity : Activity() {
         glow = field("1", trim(cfg.glow), InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL); col += glow
         col += label("Поворот камеры, ° (0–34)")
         yaw = field("24", cfg.yawDeg.toInt().toString(), InputType.TYPE_CLASS_NUMBER); col += yaw
+
+        // --- шрифт ---
+        col += header("Шрифт")
+        fontGroup = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL }
+        for (fp in FontPreset.values()) {
+            val id = View.generateViewId()
+            fontIds[fp] = id
+            fontGroup.addView(RadioButton(this).apply { this.id = id; text = fp.title; minHeight = dp(44) })
+        }
+        fontGroup.check(fontIds.getValue(cfg.font))
+        col += fontGroup
+        col += button("Выбрать свой шрифт (.ttf / .otf)") { pickFont() }
+        fontStatus = status(""); col += fontStatus
 
         // --- часы ---
         col += header("Часовые пояса")
@@ -137,6 +153,42 @@ class SettingsActivity : Activity() {
 
     // ---------- сохранение ----------
 
+    private fun selectedFont(): FontPreset =
+        fontIds.entries.firstOrNull { it.value == fontGroup.checkedRadioButtonId }?.key ?: FontPreset.DOTO_GEIST
+
+    private fun pickFont() {
+        val i = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+        }
+        try {
+            startActivityForResult(i, REQ_FONT)
+        } catch (_: ActivityNotFoundException) {
+            toast("Нет приложения для выбора файлов")
+        }
+    }
+
+    private fun importFont(uri: Uri) {
+        fontStatus.text = "Загружаю шрифт…"
+        Thread {
+            val msg = try {
+                val bytes = contentResolver.openInputStream(uri)?.use { Meshes.readAll(it, 30L * 1024 * 1024) }
+                    ?: throw java.io.IOException("не открыть файл")
+                Fonts.importCustom(this, bytes)
+                val p = Prefs.get(this)
+                p.edit()
+                    .putString(Prefs.K_FONT, FontPreset.CUSTOM.name)
+                    .putInt(Prefs.K_FONT_VER, p.getInt(Prefs.K_FONT_VER, 0) + 1)
+                    .apply()
+                runOnUiThread { fontGroup.check(fontIds.getValue(FontPreset.CUSTOM)) }
+                "Готово — свой шрифт уже на обоях"
+            } catch (e: Exception) {
+                "Ошибка: ${e.message ?: e.javaClass.simpleName}"
+            }
+            runOnUiThread { if (!isFinishing) fontStatus.text = msg }
+        }.start()
+    }
+
     private fun selectedSource(): ModelSource =
         modelIds.entries.firstOrNull { it.value == modelGroup.checkedRadioButtonId }?.key ?: ModelSource.DUCK
 
@@ -162,6 +214,7 @@ class SettingsActivity : Activity() {
             .putString(Prefs.K_ZONES, zones.text.toString().trim())
             .putBoolean(Prefs.K_WEATHER, swWeather.isChecked)
             .putString(Prefs.K_MODEL_SRC, selectedSource().name)
+            .putString(Prefs.K_FONT, selectedFont().name)
             .putFloat(Prefs.K_MODEL_SPEED, (modelSpeed.text.toString().replace(',', '.').toFloatOrNull() ?: 1f).coerceIn(0f, 3f))
             .putString(Prefs.K_SF_URL, sfUrl.text.toString().trim())
             .putString(Prefs.K_SF_TOKEN, sfToken.text.toString().trim())
@@ -250,8 +303,10 @@ class SettingsActivity : Activity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != REQ_FILE || resultCode != RESULT_OK) return
+        if (resultCode != RESULT_OK) return
         val uri: Uri = data?.data ?: return
+        if (requestCode == REQ_FONT) { importFont(uri); return }
+        if (requestCode != REQ_FILE) return
         importModel(ModelSource.FILE) {
             contentResolver.openInputStream(uri)?.use { Meshes.readAll(it) } ?: throw java.io.IOException("не открыть файл")
         }
@@ -386,5 +441,6 @@ class SettingsActivity : Activity() {
     companion object {
         private const val REQ_LOCATION = 41
         private const val REQ_FILE = 42
+        private const val REQ_FONT = 43
     }
 }

@@ -47,6 +47,7 @@ class InfoWallpaperService : WallpaperService() {
         private var weatherBusy = false
         private var mesh: WireMesh? = null
         private var meshKey = ""
+        private var fontKey = ""
         private var nextNetAt = 0L
         private var nextSlowAt = 0L
         private var lastTap = 0L
@@ -74,6 +75,7 @@ class InfoWallpaperService : WallpaperService() {
             cfg = Prefs.load(applicationContext)
             Prefs.get(applicationContext).registerOnSharedPreferenceChangeListener(this)
             loadMesh()
+            loadFonts()
         }
 
         override fun onSurfaceChanged(holder: SurfaceHolder, format: Int, w: Int, h: Int) {
@@ -118,6 +120,7 @@ class InfoWallpaperService : WallpaperService() {
             nextWeatherAt = 0L
             renderer.invalidateTime()
             loadMesh()
+            loadFonts()
             if (visible) {
                 handler.removeCallbacks(frame)
                 frame.run()
@@ -202,6 +205,14 @@ class InfoWallpaperService : WallpaperService() {
                     }
                 }
             }
+        }
+
+        private fun loadFonts() {
+            val key = "${cfg.font}|${cfg.fontVersion}"
+            if (key == fontKey) return
+            fontKey = key
+            val (num, label) = Fonts.load(applicationContext, cfg.font)
+            renderer.setFonts(num, label)
         }
 
         private fun submit(block: () -> Unit) {
