@@ -58,7 +58,6 @@ open class InfoWallpaperService : WallpaperService() {
         // серверы: отдельный поток, чтобы недоступный VPS не задерживал погоду и новости
         private val srvIo: ExecutorService = Executors.newSingleThreadExecutor()
         private val steamIo: ExecutorService = Executors.newSingleThreadExecutor()
-        private var steamPage = 0
         private val srvState = HashMap<String, SrvState>()
         private var srvBusy = false
         private var nextSrvAt = 0L
@@ -234,7 +233,7 @@ open class InfoWallpaperService : WallpaperService() {
                     "calendar" -> { openCalendar(); return@run }
                     "goals" -> { launchFirst(android.content.Intent(applicationContext, GoalsActivity::class.java)); return@run }
                     "update" -> { launchFirst(android.content.Intent(applicationContext, SettingsActivity::class.java)); return@run }
-                    "steamnext" -> { nextSteamPage(); return@run }
+                    "steamnext" -> { refreshSteam(); return@run }
                     null -> {}
                     else -> {
                         val h = hit ?: ""
@@ -291,21 +290,27 @@ open class InfoWallpaperService : WallpaperService() {
         }
 
         /**
-         * Детектор взлётов Steam: раз в час и только пока обои видны. Отдельный поток — первый сбор
-         * (карточки и отзывы ~150 игр) идёт минуту-две и не должен задерживать погоду и новости.
+         * Детектор взлётов Steam: раз в час (или по ⟳) и только пока обои видны. Отдельный поток.
+         * При запуске сразу показываем прошлый список с диска, свежий подменяет его, когда готов.
          */
         private fun maybeFetchSteam(now: Long) {
             if (!cfg.steam || steamBusy || now < nextSteamAt) return
             steamBusy = true
             val ctx = applicationContext
+            val empty = steam.isEmpty()
             try {
                 steamIo.execute {
+                    if (empty) {
+                        val last = runCatching { SteamTrends.cached(ctx) }.getOrDefault(emptyList())
+                        if (last.isNotEmpty()) handler.post { if (steam.isEmpty()) { steam = last; redraw() } }
+                    }
                     val r = runCatching { SteamTrends.fetch(ctx) }
                     handler.post {
                         steamBusy = false
-                        r.onSuccess { steam = it; steamNote = null; steamPage = steamPage.coerceAtMost((it.size - 1) / SteamTrends.ROWS) }
+                        r.onSuccess { steam = it; steamNote = null }
                             .onFailure { steamNote = it.message ?: "нет связи" }
                         nextSteamAt = SystemClock.elapsedRealtime() + if (r.isSuccess) 60 * 60_000L else 5 * 60_000L
+                        redraw()
                     }
                 }
             } catch (_: Exception) {
@@ -313,11 +318,11 @@ open class InfoWallpaperService : WallpaperService() {
             }
         }
 
-        /** ⟳ в шапке виджета: следующие 15 игр; после последней страницы — свежий сбор и снова первая. */
-        private fun nextSteamPage() {
-            val pages = maxOf(1, (steam.size + SteamTrends.ROWS - 1) / SteamTrends.ROWS)
-            steamPage = (steamPage + 1) % pages
-            if (steamPage == 0) nextSteamAt = 0L
+        /** ⟳ в шапке виджета: собрать список заново прямо сейчас (если сбор уже идёт — ничего). */
+        private fun refreshSteam() {
+            if (steamBusy) return
+            nextSteamAt = 0L
+            maybeFetchSteam(SystemClock.elapsedRealtime())
         }
 
         private inner class SrvState {
@@ -572,7 +577,7 @@ open class InfoWallpaperService : WallpaperService() {
             try {
                 c = holder.lockHardwareCanvas() ?: return
                 val t = (SystemClock.elapsedRealtime() - startedAt) / 1000f
-                val fd = FrameData(cfg, if (cfg.fps <= 0) 0f else t, stats, remote, remoteError, weather, weatherNote, cfg.city, news, rates, serverViews, fxEdit, steam, steamNote, updateName, steamPage, lockMode)
+                val fd = FrameData(cfg, if (cfg.fps <= 0) 0f else t, stats, remote, remoteError, weather, weatherNote, cfg.city, news, rates, serverViews, fxEdit, steam, steamNote, updateName, steamBusy, lockMode)
                 if (Build.VERSION.SDK_INT >= 31 && cfg.glow > 0f && c.isHardwareAccelerated) drawWithBloom(c, fd)
                 else renderer.draw(c, width, height, fd)
                 if (!lockMode) {

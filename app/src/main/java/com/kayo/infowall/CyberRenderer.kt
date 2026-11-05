@@ -42,7 +42,7 @@ class FrameData(
     val steam: List<TrendGame> = emptyList(),
     val steamNote: String? = null,
     val update: String? = null,
-    val steamPage: Int = 0,
+    val steamBusy: Boolean = false,     // идёт сбор Steam — значок ⟳ крутится
     val lock: Boolean = false,          // экран блокировки: только сцена, ракурс круче
 )
 
@@ -876,9 +876,7 @@ class CyberRenderer {
         // компактно: обложка · название · сигнал · онлайн · пик · цена
         val l = 48f; val t = 304f
         val headH = 28f; val rowH = 26f; val gap = 2f
-        val pages = max(1, (f.steam.size + SteamTrends.ROWS - 1) / SteamTrends.ROWS)
-        val page = f.steamPage.coerceIn(0, pages - 1)
-        val rows = f.steam.drop(page * SteamTrends.ROWS).take(SteamTrends.ROWS)
+        val rows = f.steam.take(SteamTrends.ROWS)
         val b = t + headH + max(1, rows.size) * (rowH + gap) + 6f
         val imgW = 52f; val imgH = imgW * 87f / 231f
         val nameX = l + 8f + imgW + 8f
@@ -888,16 +886,15 @@ class CyberRenderer {
         val priceR = peakR + 62f             // цена, $
         val r = priceR + 10f
         panel(c, l, t, r, b)
-        // шапка: TRENDING · страница · ⟳ (следующие 15)
+        // шапка: ⟳ (собрать список заново) · TRENDING
         text.typeface = labelFace; text.textSize = 10f; text.letterSpacing = 0.12f; text.color = accent
         c.drawText("TRENDING", nameX, t + 20f, text)
-        val tw = text.measureText("TRENDING")
-        text.typeface = numFace; text.letterSpacing = 0f; text.textSize = 9f; text.color = label
-        val pg = "${page + 1}/$pages"
-        c.drawText(pg, nameX + tw + 10f, t + 20f, text)
+        text.letterSpacing = 0f
         // значок обновления в левом верхнем углу панели: дуга 290° по часовой (от 30° до 320°)
-        // и залитый треугольный наконечник по касательной на её конце
+        // и залитый треугольный наконечник по касательной на её конце; пока идёт сбор — крутится
         val icx = l + 18f; val icy = t + 15f; val ir = 5.5f
+        c.save()
+        if (f.steamBusy) c.rotate((f.t * 300f) % 360f, icx, icy)
         rect.set(icx - ir, icy - ir, icx + ir, icy + ir)
         stroke.strokeCap = Paint.Cap.ROUND
         line(accent, 1.6f); c.drawArc(rect, 30f, 290f, false, stroke)
@@ -912,6 +909,7 @@ class CyberRenderer {
         path.lineTo(px - dx * 1.2f - nx * 3f, py - dy * 1.2f - ny * 3f)
         path.close()
         fill.shader = null; fill.color = accent; c.drawPath(path, fill)
+        c.restore()
         val k0 = f.cfg.uiScale * screenScale
         steamNextRect.set(screenOx + (icx - 18f) * k0, (t - 2f) * k0, screenOx + (icx + 18f) * k0, (t + headH) * k0)
         text.typeface = labelFace; text.textSize = 8f; text.letterSpacing = 0.06f; text.color = label

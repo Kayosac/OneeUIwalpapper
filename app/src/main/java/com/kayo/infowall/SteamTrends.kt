@@ -10,6 +10,9 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.time.LocalDate
+import java.util.concurrent.Callable
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import kotlin.math.log10
 import kotlin.math.max
 import kotlin.math.min
@@ -37,12 +40,12 @@ class TrendGame(
  *  - WISH — невышедшая игра со свежей страницей (большой appid) уже высоко в Top Wishlists магазина;
  *           со второго дня — ещё и рывок по месту в Top Wishlists относительно вчера.
  * Пул: топ-100 по онлайну, популярные новинки, лидеры продаж, топ-200 по вишлистам.
- * Отдаёт до [MAX] игр по убыванию силы сигнала — виджет листает их по 15.
+ * Отдаёт [ROWS] самых сильных сигналов; ⟳ на виджете собирает список заново.
  */
 object SteamTrends {
 
     const val ROWS = 15
-    const val MAX = 45
+    const val MAX = 25        // кандидатов на проверку перед отбором 15
     private const val PREFS = "infowall_steam2"
     private const val API = "https://api.steampowered.com"
     private const val STORE = "https://store.steampowered.com"
@@ -76,26 +79,35 @@ object SteamTrends {
             else if (lw - rank >= 15) c.offer(60f + min(30f, (lw - rank) / 2f), "▲${lw - rank}", TrendGame.K_JUMP)
         }
 
-        // 2) подборки магазина
-        val newRel = search("popularnew", 100, 0, cc)
-        val sellers = search("topsellers", 40, 0, cc)
-        val wish = search("popularwishlist", 100, 0, cc) + search("popularwishlist", 100, 100, cc)
+        // 2) подборки магазина — четыре запроса разом
+        val q = listOf(Triple("popularnew", 100, 0), Triple("topsellers", 40, 0),
+            Triple("popularwishlist", 100, 0), Triple("popularwishlist", 100, 100))
+        val sr = pmap(q, 4) { (f, n, start) -> search(f, n, start, cc) }.map { it ?: emptyList() }
+        val newRel = sr[0]
+        val sellers = sr[1]
+        val wish = sr[2] + sr[3]
         for ((id, name) in newRel + sellers) cand(id, name)
 
-        // 3) HOT: онлайн и отзывы у новинок и лидеров продаж (онлайн — каждый раз, отзывы и карточка — из кэша)
-        for ((id, name) in (newRel + sellers).distinctBy { it.first }) {
-            val c = cand(id, name)
-            val ccu = live[id]?.first ?: runCatching { players(id) }.getOrDefault(-1)
-            if (ccu < 1000) continue
-            val m = details(meta, id, cc) ?: continue
-            if (m.optString("t") != "game") continue
+        // 3) HOT: онлайн и отзывы у новинок и лидеров продаж (онлайн — каждый раз, отзывы и карточка — из кэша).
+        //    Запросы параллельно: онлайн в 8 потоков, карточки и отзывы магазина — в 4.
+        val hotIds = (newRel + sellers).distinctBy { it.first }.map { it.first }
+        val ccu = HashMap<Int, Int>()
+        live.forEach { (id, v) -> ccu[id] = v.first }
+        pmap(hotIds.filter { it !in live }, 8) { id -> id to runCatching { players(id) }.getOrDefault(-1) }
+            .filterNotNull().forEach { (id, n) -> ccu[id] = n }
+        val hot = pmap(hotIds.filter { (ccu[it] ?: -1) >= 1000 }, 4) { id ->
+            val m = details(meta, id, cc) ?: return@pmap null
+            if (m.optString("t") != "game") return@pmap null
             val rel = m.optLong("r", -1L)
-            if (rel <= 0 || now - rel > 365 * DAY) continue
-            val revs = cachedReviews(reviews, id, now) ?: continue
-            val ratio = ccu.toFloat() / (revs + 100)
+            if (rel <= 0 || now - rel > 365 * DAY) return@pmap null
+            val revs = cachedReviews(reviews, id, now) ?: return@pmap null
+            Triple(id, rel, revs)
+        }
+        for ((id, rel, revs) in hot.filterNotNull()) {
+            val ratio = (ccu[id] ?: 0).toFloat() / (revs + 100)
             if (ratio >= 0.5f) {
                 val fresh = if (now - rel < 30 * DAY) 10f else 0f
-                c.offer(50f + min(35f, 15f * log10(ratio * 10f)) + fresh, "HOT", TrendGame.K_HOT)
+                pool[id]?.offer(50f + min(35f, 15f * log10(ratio * 10f)) + fresh, "HOT", TrendGame.K_HOT)
             }
         }
 
@@ -127,25 +139,68 @@ object SteamTrends {
         }
 
         // 5) рейтинг и данные для показа
+        //    берём с запасом (часть отсеется как не-игры), считаем параллельно, оставляем 15 сильнейших
         val top = pool.values.filter { it.kind >= 0 }.sortedByDescending { it.score }.take(MAX)
-        val out = ArrayList<TrendGame>()
-        for (c in top) {
+        val out = pmap(top, 6) { c ->
             val m = details(meta, c.id, cc)
             val type = m?.optString("t").orEmpty()
-            if (type.isNotEmpty() && type != "game") continue
+            if (type.isNotEmpty() && type != "game") return@pmap null
             val name = c.name.ifBlank { m?.optString("n").orEmpty() }.ifBlank { "App ${c.id}" }
             // карточку не получили — считаем вышедшей всё, кроме сигнала по вишлистам
             val released = if (m == null) c.kind != TrendGame.K_WISH else m.optLong("r", -1L) > 0
             val l = live[c.id]
-            val ccu = if (!released && c.kind == TrendGame.K_WISH) -1 else l?.first ?: runCatching { players(c.id) }.getOrDefault(-1)
+            val n = if (!released && c.kind == TrendGame.K_WISH) -1
+                else ccu[c.id] ?: runCatching { players(c.id) }.getOrDefault(-1)
+            TrendGame(
+                c.id, name, n, max(l?.second ?: n, n), m?.optString("price")?.ifEmpty { null },
+                c.signal, c.kind, if (released) null else m?.optString("d")?.ifEmpty { "TBA" } ?: "TBA", null,
+            )
+        }.filterNotNull().take(ROWS)
+            .let { list -> pmap(list, 6) { g -> g.withImg(capsule(ctx, g.appid)) }.mapIndexed { i, g -> g ?: list[i] } }
+        synchronized(meta) { synchronized(reviews) {
+            p.edit().putString("meta", meta.toString()).putString("reviews", reviews.toString()).apply()
+        } }
+        if (out.isEmpty()) throw IOException("Steam: сигналов нет")
+        p.edit().putString("last", toJson(out).toString()).apply()
+        return out
+    }
+
+    /** Последний собранный список с диска — показать сразу при запуске, пока идёт свежий сбор. */
+    fun cached(ctx: Context): List<TrendGame> {
+        val a = runCatching {
+            JSONArray(ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("last", "[]"))
+        }.getOrNull() ?: return emptyList()
+        val dir = File(ctx.filesDir, "steam")
+        val out = ArrayList<TrendGame>()
+        a.forEachObj { o ->
+            val id = o.optInt("id")
+            val f = File(dir, "$id.jpg")
+            val img = if (f.exists()) runCatching { BitmapFactory.decodeFile(f.path) }.getOrNull() else null
             out += TrendGame(
-                c.id, name, ccu, max(l?.second ?: ccu, ccu), m?.optString("price")?.ifEmpty { null },
-                c.signal, c.kind, if (released) null else m?.optString("d")?.ifEmpty { "TBA" } ?: "TBA", capsule(ctx, c.id),
+                id, o.optString("n"), o.optInt("p", -1), o.optInt("k", -1), o.optString("pr").ifEmpty { null },
+                o.optString("s"), o.optInt("kind"), o.optString("u").ifEmpty { null }, img,
             )
         }
-        p.edit().putString("meta", meta.toString()).putString("reviews", reviews.toString()).apply()
-        if (out.isEmpty()) throw IOException("Steam: сигналов нет")
         return out
+    }
+
+    private fun toJson(list: List<TrendGame>) = JSONArray().also { a ->
+        for (g in list) a.put(JSONObject().put("id", g.appid).put("n", g.name).put("p", g.players).put("k", g.peak24)
+            .put("pr", g.price ?: "").put("s", g.signal).put("kind", g.kind).put("u", g.upcoming ?: ""))
+    }
+
+    private fun TrendGame.withImg(b: Bitmap?) = TrendGame(appid, name, players, peak24, price, signal, kind, upcoming, b)
+
+    /** Параллельный map для сетевых запросов; порядок результата — как у входа. */
+    private fun <T, R> pmap(items: List<T>, threads: Int, f: (T) -> R): List<R?> {
+        if (items.isEmpty()) return emptyList()
+        val ex = Executors.newFixedThreadPool(min(threads, items.size))
+        try {
+            return ex.invokeAll(items.map { Callable { f(it) } }, 3, TimeUnit.MINUTES)
+                .map { fu -> runCatching { fu.get() }.getOrNull() }   // упал или не успел — null
+        } finally {
+            ex.shutdownNow()
+        }
     }
 
     // ---------- источники ----------
@@ -170,12 +225,12 @@ object SteamTrends {
      */
     private fun details(meta: JSONObject, id: Int, cc: String): JSONObject? {
         val now = System.currentTimeMillis()
-        meta.optJSONObject(id.toString())?.let { if (now - it.optLong("at") < DAY) return it }
+        synchronized(meta) { meta.optJSONObject(id.toString()) }?.let { if (now - it.optLong("at") < DAY) return it }
         val o = runCatching {
             Thread.sleep(200)   // бережно к магазину
             JSONObject(get("$STORE/api/appdetails?appids=$id&cc=$cc&filters=basic,price_overview,release_date&l=english"))
                 .optJSONObject(id.toString())?.optJSONObject("data")
-        }.getOrNull() ?: return meta.optJSONObject(id.toString())
+        }.getOrNull() ?: return synchronized(meta) { meta.optJSONObject(id.toString()) }
         val rd = o.optJSONObject("release_date")
         val soon = rd == null || rd.optBoolean("coming_soon")
         val dateText = rd?.optString("date").orEmpty()
@@ -187,18 +242,18 @@ object SteamTrends {
             .put("t", o.optString("type")).put("n", o.optString("name"))
             .put("r", if (soon) -1L else parseDate(dateText)).put("d", shortDate(dateText))
             .put("price", price).put("at", now)
-        meta.put(id.toString(), m)
+        synchronized(meta) { meta.put(id.toString(), m) }
         return m
     }
 
     private fun cachedReviews(store: JSONObject, id: Int, now: Long): Int? {
-        store.optJSONArray(id.toString())?.let { if (now - it.optLong(1) < DAY) return it.optInt(0) }
+        synchronized(store) { store.optJSONArray(id.toString()) }?.let { if (now - it.optLong(1) < DAY) return it.optInt(0) }
         val n = runCatching {
             Thread.sleep(200)
             JSONObject(get("$STORE/appreviews/$id?json=1&language=all&purchase_type=all&num_per_page=0"))
                 .optJSONObject("query_summary")?.optInt("total_reviews")
-        }.getOrNull() ?: return store.optJSONArray(id.toString())?.optInt(0)
-        store.put(id.toString(), JSONArray().put(n).put(now))
+        }.getOrNull() ?: return synchronized(store) { store.optJSONArray(id.toString()) }?.optInt(0)
+        synchronized(store) { store.put(id.toString(), JSONArray().put(n).put(now)) }
         return n
     }
 
