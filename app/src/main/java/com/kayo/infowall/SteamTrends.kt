@@ -51,6 +51,7 @@ object SteamTrends {
     const val ROWS = 15
     const val MAX = 80        // кандидатов на проверку перед отбором 15 (многие отсеются по дате выхода)
     private const val FRESH_DAYS = 90
+    private const val MAX_WISH = 6     // строк с сигналом WISH в списке
     private const val PREFS = "infowall_steam2"
     private const val API = "https://api.steampowered.com"
     private const val STORE = "https://store.steampowered.com"
@@ -145,7 +146,11 @@ object SteamTrends {
 
         // 5) рейтинг и данные для показа
         //    берём с запасом (часть отсеется как не-игры), считаем параллельно, оставляем 15 сильнейших
-        val top = pool.values.filter { it.kind >= 0 }.sortedByDescending { it.score }.take(MAX)
+        // вишлистов в пуле сотни — берём их немного с запасом, а игр с онлайном — сколько влезет в MAX
+        val sig = pool.values.filter { it.kind >= 0 }
+        val top = (sig.filter { it.kind != TrendGame.K_WISH }.sortedByDescending { it.score }.take(MAX) +
+            sig.filter { it.kind == TrendGame.K_WISH }.sortedByDescending { it.score }.take(MAX_WISH + 6))
+            .sortedByDescending { it.score }
         val out = pmap(top, 6) { c ->
             val m = details(meta, c.id, cc)
             val type = m?.optString("t").orEmpty()
@@ -165,7 +170,11 @@ object SteamTrends {
                 c.id, name, n, max(l?.second ?: n, n), m?.optString("price")?.ifEmpty { null },
                 c.signal, c.kind, if (released) null else m?.optString("d")?.ifEmpty { "TBA" } ?: "TBA", null,
             )
-        }.filterNotNull().take(ROWS)
+        }.filterNotNull().let { all ->
+            // вишлисты — не больше MAX_WISH строк, остальное место — играм с онлайном
+            var w = 0
+            all.filter { it.kind != TrendGame.K_WISH || w++ < MAX_WISH }.take(ROWS)
+        }
             .let { list ->
                 pmap(list, 6) { g ->
                     val img = synchronized(meta) { meta.optJSONObject(g.appid.toString()) }?.optString("img").orEmpty()
