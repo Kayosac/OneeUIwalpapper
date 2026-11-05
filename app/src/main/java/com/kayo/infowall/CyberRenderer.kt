@@ -881,15 +881,23 @@ class CyberRenderer {
         text.typeface = numFace; text.letterSpacing = 0f; text.textSize = 9f; text.color = label
         val pg = "${page + 1}/$pages"
         c.drawText(pg, nameX + tw + 10f, t + 20f, text)
-        // значок обновления в левом верхнем углу панели (над колонкой обложек): дуга со стрелкой
+        // значок обновления в левом верхнем углу панели: дуга 290° по часовой (от 30° до 320°)
+        // и залитый треугольный наконечник по касательной на её конце
         val icx = l + 18f; val icy = t + 15f; val ir = 5.5f
         rect.set(icx - ir, icy - ir, icx + ir, icy + ir)
         stroke.strokeCap = Paint.Cap.ROUND
-        line(accent, 1.6f); c.drawArc(rect, -60f, 290f, false, stroke)
-        val ax = icx + ir * cos(Math.toRadians(-60.0)).toFloat(); val ay = icy + ir * sin(Math.toRadians(-60.0)).toFloat()
-        path.reset(); path.moveTo(ax - 3.5f, ay - 1.5f); path.lineTo(ax + 0.5f, ay); path.lineTo(ax + 0.5f, ay - 4f)
-        c.drawPath(path, stroke)
+        line(accent, 1.6f); c.drawArc(rect, 30f, 290f, false, stroke)
         stroke.strokeCap = Paint.Cap.BUTT
+        val ae = Math.toRadians(320.0)
+        val nx = cos(ae).toFloat(); val ny = sin(ae).toFloat()      // наружу от центра
+        val dx = -ny; val dy = nx                                    // касательная по часовой
+        val px = icx + ir * nx; val py = icy + ir * ny
+        path.reset()
+        path.moveTo(px + dx * 3.4f, py + dy * 3.4f)
+        path.lineTo(px - dx * 1.2f + nx * 3f, py - dy * 1.2f + ny * 3f)
+        path.lineTo(px - dx * 1.2f - nx * 3f, py - dy * 1.2f - ny * 3f)
+        path.close()
+        fill.shader = null; fill.color = accent; c.drawPath(path, fill)
         val k0 = f.cfg.uiScale * screenScale
         steamNextRect.set(screenOx + (icx - 18f) * k0, (t - 2f) * k0, screenOx + (icx + 18f) * k0, (t + headH) * k0)
         text.typeface = labelFace; text.textSize = 8f; text.letterSpacing = 0.06f; text.color = label
