@@ -453,8 +453,10 @@ class CyberRenderer {
         // узкие колонки справа от часов: [батарея + память] [сеть] [сервер 1] [сервер 2]
         val x0 = 78f + 480f + 32f
         val x1 = uiR - 28f
-        val gap = 24f
-        val colW = 212f
+        // ширины колонок постоянные, лишнее место — поровну в промежутки
+        val colW = 212f; val netW = 176f; val srvW = 172f
+        val nSrv = min(2, f.servers.size)
+        val gap = ((x1 - x0 - colW - netW - nSrv * srvW) / (1 + nSrv)).coerceIn(24f, 72f)
         val xB = x0 + colW + gap
         fill.shader = null
         fill.color = withA(accent, 0.32f)
@@ -492,7 +494,7 @@ class CyberRenderer {
 
         // --- сеть: графики ---
         val bx = xB + 16f
-        val bEnd = xB + colW
+        val bEnd = xB + netW
         caption(c, "СЕТЬ", bx, 68f)
         text.typeface = labelFace; text.textSize = 10f; text.letterSpacing = 0f; text.color = label
         c.drawText("Мбит/с", bEnd - text.measureText("Мбит/с"), 68f, text)
@@ -500,15 +502,12 @@ class CyberRenderer {
         netRow(c, "↑", st.txNow, st.txHist, st.histCount, bx, bEnd, 172f)
 
         // --- серверы ---
-        val n = min(2, f.servers.size)
-        if (n == 0) return
-        val sw = (x1 - bEnd - gap * n) / n
-        for (i in 0 until n) {
-            val sx = bEnd + gap + i * (sw + gap)
+        for (i in 0 until nSrv) {
+            val sx = bEnd + gap + i * (srvW + gap)
             fill.shader = null
             fill.color = withA(accent, 0.32f)
             c.drawRect(sx, 50f, sx + 1f, 198f, fill)
-            drawServer(c, f.servers[i], sx + 16f, sx + sw)
+            drawServer(c, f.servers[i], sx + 16f, sx + srvW)
         }
     }
 
@@ -527,20 +526,33 @@ class CyberRenderer {
 
         text.typeface = numFace; text.textSize = 11f; text.color = if (off) withA(label, 0.6f) else face
         c.drawText(s.ip, x, 86f, text)
-        if (off) {
-            text.typeface = labelFace; text.textSize = 10f; text.letterSpacing = 0.18f; text.color = BAD_COLOR
-            c.drawText("OFFLINE", end - text.measureText("OFFLINE"), 86f, text)
-            text.letterSpacing = 0f
-        }
 
+        // строка: подпись · короткий график · цифры (CPU — %, память и диск — занято/всего в ГБ)
         val m = s.metrics
-        val rows = arrayOf("CPU" to m?.cpuHist, "RAM" to m?.ramHist, "ROM" to m?.diskHist)
-        for ((k, row) in rows.withIndex()) {
-            val top = 98f + k * 34f
+        val labels = arrayOf("CPU", "RAM", "ROM")
+        for (k in 0 until 3) {
+            val top = 98f + k * 32f
+            val base = top + 15f
             text.typeface = labelFace; text.textSize = 10f; text.letterSpacing = 0.08f; text.color = label
-            c.drawText(row.first, x, top + 17f, text)
+            c.drawText(labels[k], x, base, text)
             text.letterSpacing = 0f
-            spark(c, row.second, x + 34f, top, end - x - 34f, 26f, off)
+            val hist = when (k) { 0 -> m?.cpuHist; 1 -> m?.ramHist; else -> m?.diskHist }
+            spark(c, hist, x + 32f, top, 56f, 22f, off)
+            if (off && k == 0) {
+                text.typeface = labelFace; text.textSize = 10f; text.letterSpacing = 0.12f; text.color = BAD_COLOR
+                c.drawText("OFFLINE", end - text.measureText("OFFLINE"), base, text)
+                text.letterSpacing = 0f
+                continue
+            }
+            val v = when {
+                m == null || off -> "—"
+                k == 0 -> "${(m.cpuHist.lastOrNull() ?: 0f).roundToInt()}%"
+                k == 1 -> "${gbShort(m.ramUsed)}/${gbShort(m.ramTotal)}G"
+                else -> "${gbShort(m.diskUsed)}/${gbShort(m.diskTotal)}G"
+            }
+            text.textSize = 11f
+            text.color = if (off) withA(label, 0.6f) else face
+            drawMixed(c, v, end - measureMixed(v), base)
         }
     }
 
@@ -895,6 +907,12 @@ class CyberRenderer {
         stroke.shader = null
         stroke.color = color
         stroke.strokeWidth = width
+    }
+
+    /** Короткие ГБ для серверов: до 10 — с десятой, дальше целые. */
+    private fun gbShort(b: Long): String {
+        val v = b / 1_073_741_824.0
+        return if (v < 10) String.format(Locale.US, "%.1f", v) else String.format(Locale.US, "%.0f", v)
     }
 
     private fun gb(b: Long): String {

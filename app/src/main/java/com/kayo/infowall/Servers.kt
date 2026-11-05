@@ -21,7 +21,11 @@ data class ServerConf(val name: String, val url: String, val token: String, val 
 }
 
 /** Проценты 0–100: история за последние ~30 минут (точка раз в 30 с), последняя — текущее значение. */
-class ServerMetrics(val cpuHist: FloatArray, val ramHist: FloatArray, val diskHist: FloatArray, val uptimeSec: Long)
+class ServerMetrics(
+    val cpuHist: FloatArray, val ramHist: FloatArray, val diskHist: FloatArray,
+    val ramUsed: Long, val ramTotal: Long, val diskUsed: Long, val diskTotal: Long,
+    val uptimeSec: Long,
+)
 
 /** Что видно на обоях: хостинг, IP, графики и жив ли сервер. */
 class ServerView(val name: String, val ip: String, val metrics: ServerMetrics?, val online: Boolean?, val error: String?)
@@ -86,6 +90,8 @@ object Servers {
                 cpuHist = series("cpu", o.optDouble("cpu", 0.0).toFloat()),
                 ramHist = series("ram", pct("ram_used", "ram_total")),
                 diskHist = series("disk", pct("disk_used", "disk_total")),
+                ramUsed = o.optLong("ram_used", 0L), ramTotal = o.optLong("ram_total", 0L),
+                diskUsed = o.optLong("disk_used", 0L), diskTotal = o.optLong("disk_total", 0L),
                 uptimeSec = o.optLong("uptime", 0L),
             )
         } finally {
