@@ -881,8 +881,8 @@ class CyberRenderer {
         text.typeface = numFace; text.letterSpacing = 0f; text.textSize = 9f; text.color = label
         val pg = "${page + 1}/$pages"
         c.drawText(pg, nameX + tw + 10f, t + 20f, text)
-        // значок обновления: дуга со стрелкой
-        val icx = nameX + tw + 10f + text.measureText(pg) + 16f; val icy = t + 16f; val ir = 5.5f
+        // значок обновления в левом верхнем углу панели (над колонкой обложек): дуга со стрелкой
+        val icx = l + 18f; val icy = t + 15f; val ir = 5.5f
         rect.set(icx - ir, icy - ir, icx + ir, icy + ir)
         stroke.strokeCap = Paint.Cap.ROUND
         line(accent, 1.6f); c.drawArc(rect, -60f, 290f, false, stroke)
