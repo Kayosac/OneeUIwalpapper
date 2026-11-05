@@ -39,6 +39,8 @@ class FrameData(
     val rates: Rates? = null,
     val servers: List<ServerView> = emptyList(),
     val fx: FxEdit? = null,
+    val steam: List<TrendGame> = emptyList(),
+    val steamNote: String? = null,
 )
 
 /**
@@ -92,6 +94,7 @@ class CyberRenderer {
         !clockOnScreen.isEmpty && clockOnScreen.contains(x, y) -> "clock"
         !calendarOnScreen.isEmpty && calendarOnScreen.contains(x, y) -> "calendar"
         !goalsOnScreen.isEmpty && goalsOnScreen.contains(x, y) -> "goals"
+        else -> steamRows.indices.firstOrNull { steamRows[it].contains(x, y) }?.let { "steam:${steamIds[it]}" }
         else -> null
     }
 
@@ -219,6 +222,7 @@ class CyberRenderer {
         drawHud(c, f)
         drawTicker(c, f)
         drawWeatherAndCalendar(c, f)
+        if (cfg.steam) drawSteam(c, f) else steamRows.clear()
         c.restore()
 
         c.restore()
@@ -785,6 +789,106 @@ class CyberRenderer {
             toScreen(calendarOnScreen, wl + 278f, top, cr, bottom, f.cfg.uiScale)
         }
         if (f.cfg.converter) drawRates(c, f, uiR - 168f, top, uiR, bottom) else converterOnScreen.setEmpty()
+    }
+
+    // ================= Trending Games (SteamDB-стиль) =================
+
+    private val steamRows = ArrayList<RectF>()
+    private val steamIds = ArrayList<Int>()
+    private val capPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    private var capKey = 0
+    private val capDst = RectF()
+
+    /**
+     * Таблица как на главной SteamDB: [обложка][Trending Games][Last 7 days][Players Now],
+     * обложки — монохром в цвет акцента, чтобы не спорить со стилем.
+     */
+    private fun drawSteam(c: Canvas, f: FrameData) {
+        val l = 48f; val t = 304f; val r = 760f
+        val headH = 30f; val rowH = 34f; val gap = 3f
+        val rows = f.steam.take(SteamTrends.ROWS)
+        val b = t + headH + max(1, rows.size) * (rowH + gap) + 6f
+        panel(c, l, t, r, b)
+        // шапка
+        val imgW = 90f; val imgH = imgW * 87f / 231f
+        val nameX = l + 10f + imgW + 12f
+        val playersR = r - 12f
+        val sparkR = playersR - 96f; val sparkL = sparkR - 150f
+        text.typeface = labelFace; text.textSize = 11f; text.letterSpacing = 0.18f; text.color = accent
+        c.drawText("TRENDING GAMES", nameX, t + 20f, text)
+        text.textSize = 9f; text.letterSpacing = 0.12f; text.color = label
+        center(c, "LAST 7 DAYS", (sparkL + sparkR) / 2f, t + 20f)
+        c.drawText("PLAYERS NOW", playersR - text.measureText("PLAYERS NOW"), t + 20f, text)
+        text.letterSpacing = 0f
+        fill.shader = null; fill.color = withA(accent, 0.32f)
+        c.drawRect(l + 8f, t + headH - 2f, r - 8f, t + headH - 1f, fill)
+
+        if (capKey != accent) {
+            capKey = accent
+            // монохром: яркость пикселя → оттенок акцента
+            val ar = Color.red(accent) / 255f; val ag = Color.green(accent) / 255f; val ab = Color.blue(accent) / 255f
+            val m = android.graphics.ColorMatrix(floatArrayOf(
+                0.299f * ar * 1.25f, 0.587f * ar * 1.25f, 0.114f * ar * 1.25f, 0f, 0f,
+                0.299f * ag * 1.25f, 0.587f * ag * 1.25f, 0.114f * ag * 1.25f, 0f, 0f,
+                0.299f * ab * 1.25f, 0.587f * ab * 1.25f, 0.114f * ab * 1.25f, 0f, 0f,
+                0f, 0f, 0f, 1f, 0f,
+            ))
+            capPaint.colorFilter = android.graphics.ColorMatrixColorFilter(m)
+        }
+
+        steamRows.clear(); steamIds.clear()
+        val k = f.cfg.uiScale * screenScale
+        if (rows.isEmpty()) {
+            text.typeface = labelFace; text.textSize = 10f; text.color = label
+            drawMixed(c, f.steamNote?.let { "Steam: $it" } ?: "загрузка…", nameX, t + headH + 22f)
+            return
+        }
+        rows.forEachIndexed { i, g ->
+            val y = t + headH + 4f + i * (rowH + gap)
+            if (i % 2 == 0) { fill.color = withA(accent, 0.04f); c.drawRect(l + 6f, y, r - 6f, y + rowH, fill) }
+            // обложка
+            val iy = y + (rowH - imgH) / 2f
+            capDst.set(l + 10f, iy, l + 10f + imgW, iy + imgH)
+            val bmp = g.img
+            if (bmp != null) c.drawBitmap(bmp, null, capDst, capPaint)
+            else { fill.color = withA(accent, 0.1f); c.drawRect(capDst, fill) }
+            line(withA(accent, 0.35f), 1f); c.drawRect(capDst, stroke)
+            // название
+            text.typeface = labelFace; text.textSize = 11f; text.letterSpacing = 0.02f; text.color = face
+            var name = g.name
+            val maxW = sparkL - 14f - nameX
+            if (measureMixed(name) > maxW) {
+                while (name.length > 1 && measureMixed("$name…") > maxW) name = name.dropLast(1)
+                name = "$name…"
+            }
+            drawMixed(c, name, nameX, y + rowH / 2f + 4f)
+            text.letterSpacing = 0f
+            // график за 7 дней (наш)
+            spark7(c, g.hist, sparkL, y + 6f, sparkR - sparkL, rowH - 12f)
+            // онлайн
+            val v = String.format(java.util.Locale.US, "%,d", g.players)
+            text.typeface = numFace; text.textSize = 13f; text.color = accent
+            text.setShadowLayer(6f, 0f, 0f, withA(accent, 0.6f))
+            c.drawText(v, playersR - text.measureText(v), y + rowH / 2f + 4.5f, text)
+            text.clearShadowLayer()
+            steamRows += RectF(screenOx + l * k, y * k, screenOx + r * k, (y + rowH) * k)
+            steamIds += g.appid
+        }
+    }
+
+    private fun spark7(c: Canvas, v: FloatArray, x: Float, top: Float, w: Float, h: Float) {
+        fill.color = withA(accent, 0.15f); c.drawRect(x, top + h, x + w, top + h + 1f, fill)
+        if (v.isEmpty()) return
+        var lo = v[0]; var hi = v[0]
+        for (p in v) { lo = min(lo, p); hi = max(hi, p) }
+        val span = max(1f, hi - lo)
+        fun py(p: Float) = top + h - 2f - (p - lo) / span * (h - 4f)
+        path.reset()
+        if (v.size == 1) { path.moveTo(x, py(v[0])); path.lineTo(x + w, py(v[0])) }
+        else for (i in v.indices) { val px = x + w * i / (v.size - 1); if (i == 0) path.moveTo(px, py(v[i])) else path.lineTo(px, py(v[i])) }
+        line(withA(accent, 0.3f), 3f); c.drawPath(path, stroke)
+        line(accent, 1.2f); c.drawPath(path, stroke)
+        fill.color = Color.WHITE; c.drawCircle(x + w, py(v[v.size - 1]), 1.8f, fill)
     }
 
     private fun drawWeather(c: Canvas, f: FrameData, l: Float, t: Float, r: Float, b: Float) {

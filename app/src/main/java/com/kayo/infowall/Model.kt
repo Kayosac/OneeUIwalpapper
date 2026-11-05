@@ -50,6 +50,7 @@ data class Config(
     val city: String,
     val servers: List<ServerConf>,
     val goals: List<Goal>,
+    val steam: Boolean,
 )
 
 object Prefs {
@@ -81,6 +82,7 @@ object Prefs {
     const val K_LON = "lon"
     const val K_CITY = "city"
     const val K_SERVERS = "servers"
+    const val K_STEAM = "steam"
 
     const val MIN_INTERVAL = 15
     const val DEFAULT_ACCENT = "#00E5FF"
@@ -123,6 +125,7 @@ object Prefs {
             city = p.getString(K_CITY, "").orEmpty(),
             servers = Servers.parse(p.getString(K_SERVERS, "").orEmpty()),
             goals = Goals.parse(p.getString(Goals.PREF_KEY, null)),
+            steam = p.getBoolean(K_STEAM, true),
         )
     }
 

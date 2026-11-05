@@ -127,6 +127,11 @@ class SettingsActivity : Activity() {
         }
         col += newsRegion
 
+        // --- Steam ---
+        col += header("Trending Games (Steam)")
+        col += switch("Виджет слева: игры, которые сильнее всех растут в чарте Steam за неделю", cfg.steam) { v -> put { putBoolean(Prefs.K_STEAM, v) } }
+        col += label("Данные — официальный открытый API Steam. График «7 дней» копится сам, пока работают обои. Тап по игре — её страница.")
+
         // --- цели ---
         col += header("Цели")
         col += label("Шесть колец справа вверху: сколько дней осталось до каждой даты. Тап по блоку на обоях — то же окно.")

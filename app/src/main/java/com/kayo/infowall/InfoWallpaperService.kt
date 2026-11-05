@@ -62,6 +62,10 @@ class InfoWallpaperService : WallpaperService() {
         private var nextSlowAt = 0L
         private var lastTap = 0L
         private var fxEdit: FxEdit? = null      // идёт ввод суммы на обоях
+        private var steam: List<TrendGame> = emptyList()
+        private var steamNote: String? = null
+        private var steamBusy = false
+        private var nextSteamAt = 0L
 
         // bloom: сцена пишется в RenderNode с эффектом «сцена + размытая копия»
         private var sceneNode: RenderNode? = null
@@ -181,6 +185,12 @@ class InfoWallpaperService : WallpaperService() {
                     "clock" -> { openClock(); return null }
                     "calendar" -> { openCalendar(); return null }
                     "goals" -> { launchFirst(android.content.Intent(applicationContext, GoalsActivity::class.java)); return null }
+                    null -> {}
+                    else -> renderer.appHit(tx, ty)?.removePrefix("steam:")?.toIntOrNull()?.let { id ->
+                        // страница игры: откроется в приложении Steam, если оно стоит, иначе в браузере
+                        launchFirst(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://store.steampowered.com/app/$id/")))
+                        return null
+                    }
                 }
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastTap < 400) {
@@ -201,8 +211,24 @@ class InfoWallpaperService : WallpaperService() {
             maybeFetchNews(now)
             maybeFetchRates(now)
             maybeFetchServers(now)
+            maybeFetchSteam(now)
             // клавиатура сама закрывается через 30 с без нажатий (с сохранением набранного)
             fxEdit?.let { if (now - it.lastAt > 30_000L) closeFx(true) }
+        }
+
+        /** Trending Games: раз в 30 минут и только пока обои видны. */
+        private fun maybeFetchSteam(now: Long) {
+            if (!cfg.steam || steamBusy || now < nextSteamAt) return
+            steamBusy = true
+            val ctx = applicationContext
+            submit {
+                val r = runCatching { SteamTrends.fetch(ctx) }
+                handler.post {
+                    steamBusy = false
+                    r.onSuccess { steam = it; steamNote = null }.onFailure { steamNote = it.message ?: "нет связи" }
+                    nextSteamAt = SystemClock.elapsedRealtime() + if (r.isSuccess) 30 * 60_000L else 5 * 60_000L
+                }
+            }
         }
 
         private inner class SrvState {
@@ -448,7 +474,7 @@ class InfoWallpaperService : WallpaperService() {
             try {
                 c = holder.lockHardwareCanvas() ?: return
                 val t = (SystemClock.elapsedRealtime() - startedAt) / 1000f
-                val fd = FrameData(cfg, if (cfg.fps <= 0) 0f else t, stats, remote, remoteError, weather, weatherNote, cfg.city, news, rates, serverViews, fxEdit)
+                val fd = FrameData(cfg, if (cfg.fps <= 0) 0f else t, stats, remote, remoteError, weather, weatherNote, cfg.city, news, rates, serverViews, fxEdit, steam, steamNote)
                 if (Build.VERSION.SDK_INT >= 31 && cfg.glow > 0f && c.isHardwareAccelerated) drawWithBloom(c, fd)
                 else renderer.draw(c, width, height, fd)
                 // чёрный низ — поверх всего, включая свечение
