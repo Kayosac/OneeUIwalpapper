@@ -11,6 +11,7 @@ InfoWall push — отправляет лимиты Claude Code и Codex на li
   push.py claude [--chain CMD]                    statusLine для Claude Code
   push.py codex [-- CMD ...]                      notify для Codex
   push.py test [--clear]                          тестовые карточки (или убрать их)
+  push.py doctor                                  проверить всю цепочку
   push.py uninstall                               убрать хуки
 
 Только стандартная библиотека Python 3.8+.
@@ -125,6 +126,24 @@ def cmd_send(args):
         pass  # молча: ни statusline, ни Codex не должны страдать от сети
 
 
+def mark_seen(source, **info):
+    """Запоминаем, что хук вызывался — для push.py doctor."""
+    try:
+        os.makedirs(BASE, exist_ok=True)
+        with open(os.path.join(BASE, f".seen-{source}.json"), "w", encoding="utf-8") as f:
+            json.dump(dict(info, at=time.time()), f)
+    except OSError:
+        pass
+
+
+def read_seen(source):
+    try:
+        with open(os.path.join(BASE, f".seen-{source}.json"), encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
 # ---------------- Claude Code ----------------
 
 CLAUDE_LABELS = {"five_hour": "5ч", "seven_day": "нед", "spend_limit": "бюджет"}
@@ -157,6 +176,9 @@ def cmd_claude(args):
         status = {}
 
     windows = claude_windows(status)
+    mark_seen("claude", has_rate_limits=bool(windows),
+              keys=sorted(status.keys()) if isinstance(status, dict) else [],
+              version=status.get("version") if isinstance(status, dict) else None)
     if windows:
         send_detached({"source": "claude", "label": "Claude", "windows": windows})
 
@@ -278,6 +300,7 @@ def cmd_codex(args):
     if "--" in args:
         i = args.index("--")
         chain, args = args[i + 1:], args[:i]
+    mark_seen("codex")
     send_detached({"source": "codex", "label": "Codex", "windows": []}, delay=1.5)
     if chain:
         try:
@@ -424,6 +447,75 @@ def cmd_test(args):
     ]}))
 
 
+def _ago(ts):
+    d = int(time.time() - ts)
+    if d < 90:
+        return f"{d} сек назад"
+    if d < 5400:
+        return f"{d // 60} мин назад"
+    return f"{d // 3600} ч назад"
+
+
+def cmd_doctor(_args):
+    ok, bad = "✓", "✗"
+    url, token = load_config()
+    print(f"{ok if url and token else bad} конфиг: {url or 'нет — запусти install'}")
+    if url and token:
+        try:
+            post({"source": "push-test", "windows": []})
+            print(f"{ok} сервер принимает данные")
+        except Exception as e:
+            print(f"{bad} сервер: {e}")
+
+    # --- Claude Code ---
+    cmd = ""
+    try:
+        with open(CLAUDE_SETTINGS, encoding="utf-8") as f:
+            cmd = (json.load(f).get("statusLine") or {}).get("command", "")
+    except (OSError, ValueError):
+        pass
+    print(f"{ok if MARK in cmd else bad} Claude Code: statusLine {'прописан' if MARK in cmd else 'НЕ прописан'}")
+    seen = read_seen("claude")
+    if not seen:
+        print(f"{bad} Claude Code: статус-строка ни разу не вызывала скрипт "
+              "(перезапусти claude в терминале и отправь сообщение; в приложении Claude Desktop это не работает)")
+    else:
+        print(f"{ok} Claude Code: вызывал скрипт {_ago(seen['at'])}, версия {seen.get('version') or '?'}")
+        if seen.get("has_rate_limits"):
+            print(f"{ok} Claude Code: лимиты приходят")
+        else:
+            print(f"{bad} Claude Code: лимитов в данных нет — нужен вход по подписке Pro/Max "
+                  "(не API-ключ), свежая версия (claude update) и хотя бы один ответ в сессии")
+
+    # --- Codex ---
+    if os.path.isdir(os.path.join(HOME, ".codex")):
+        txt = ""
+        try:
+            with open(CODEX_CONFIG, encoding="utf-8") as f:
+                txt = f.read()
+        except OSError:
+            pass
+        hooked = any(NOTIFY_RE.match(l) and MARK in l for l in txt.splitlines())
+        print(f"{ok if hooked else bad} Codex: notify {'прописан' if hooked else 'НЕ прописан'}")
+        seen = read_seen("codex")
+        print(f"{ok if seen else bad} Codex: хук " + (f"вызывался {_ago(seen['at'])}" if seen else
+              "ни разу не вызывался (перезапусти codex и отправь сообщение)"))
+        rolls = _newest_rollouts(1)
+        print(f"{ok if rolls else bad} Codex: лог сессий " + (_ago(os.path.getmtime(rolls[0])) if rolls else "не найден"))
+        w = codex_windows()
+        if w:
+            print(f"{ok} Codex: лимиты в логе есть — " + ", ".join(f"{x['label']} {x['used_percent']}%" for x in w))
+            try:
+                post({"source": "codex", "label": "Codex", "windows": w})
+                print(f"{ok} Codex: отправил на сервер прямо сейчас")
+            except Exception as e:
+                print(f"{bad} Codex: не отправилось: {e}")
+        else:
+            print(f"{bad} Codex: лимитов в логах не нашёл")
+    else:
+        print("– Codex: не установлен")
+
+
 def main():
     if len(sys.argv) < 2:
         print(__doc__)
@@ -435,6 +527,7 @@ def main():
         "install": cmd_install,
         "uninstall": cmd_uninstall,
         "test": cmd_test,
+        "doctor": cmd_doctor,
         "_send": cmd_send,
     }.get(cmd, lambda _a: sys.exit(f"неизвестная команда: {cmd}"))(args)
 
