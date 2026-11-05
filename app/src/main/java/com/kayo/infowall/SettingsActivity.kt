@@ -32,7 +32,7 @@ import java.util.Locale
  */
 class SettingsActivity : Activity() {
 
-    private lateinit var accent: EditText
+    private var accentColor = 0
     private lateinit var fps: EditText
     private lateinit var glow: EditText
     private lateinit var shadeSolid: EditText
@@ -48,10 +48,6 @@ class SettingsActivity : Activity() {
     private lateinit var swNews: Switch
     private lateinit var newsRegion: EditText
     private lateinit var servers: EditText
-    private lateinit var url: EditText
-    private lateinit var token: EditText
-    private lateinit var interval: EditText
-    private lateinit var result: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -66,9 +62,12 @@ class SettingsActivity : Activity() {
 
         // --- вид ---
         col += header("Вид")
-        col += label("Цвет (hex), например #00E5FF")
-        accent = field("#00E5FF", p.getString(Prefs.K_ACCENT, Prefs.DEFAULT_ACCENT).orEmpty(), InputType.TYPE_CLASS_TEXT)
-        col += accent
+        col += label("Цвет — меняется на обоях сразу")
+        accentColor = cfg.accent
+        col += ColorPalette(this, cfg.accent) { c ->
+            accentColor = c
+            Prefs.get(this).edit().putString(Prefs.K_ACCENT, ColorPalette.hex(c)).apply()
+        }
         col += label("Кадров в секунду: 0 — без анимации (экономия), 10–30 — плавно")
         fps = field("20", cfg.fps.toString(), InputType.TYPE_CLASS_NUMBER); col += fps
         col += label("Свечение (bloom): 0 — выкл, 1 — норма, до 2 — сильнее")
@@ -131,23 +130,10 @@ class SettingsActivity : Activity() {
         }
         col += servers
 
-        // --- источник ---
-        col += header("Источник данных для бегущей строки (необязательно)")
-        url = field("URL JSON, например http://192.168.1.10:8080/status.json", cfg.url,
-            InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI)
-        col += url
-        token = field("Токен (Bearer), если нужен", cfg.token,
-            InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD)
-        col += token
-        col += label("Интервал обновления, сек (мин. ${Prefs.MIN_INTERVAL})")
-        interval = field("300", cfg.intervalSec.toString(), InputType.TYPE_CLASS_NUMBER); col += interval
-        col += button("Проверить источник") { testSource() }
-        result = status(""); col += result
-
         col += space(dp(16))
         col += button("Сохранить") { if (save()) toast("Сохранено") }
         col += button("Сохранить и установить обои") { if (save()) setWallpaper() }
-        col += label("Двойной тап по пустому месту рабочего стола — обновить погоду и источник.")
+        col += label("Двойной тап по пустому месту рабочего стола — обновить погоду и серверы.")
 
         setContentView(ScrollView(this).apply { isFillViewport = true; addView(col) })
     }
@@ -155,18 +141,7 @@ class SettingsActivity : Activity() {
     // ---------- сохранение ----------
 
     private fun save(): Boolean {
-        val u = url.text.toString().trim()
-        if (u.isNotEmpty() && !(u.startsWith("http://") || u.startsWith("https://"))) {
-            url.error = "Нужен адрес, начинающийся с http:// или https://"
-            url.requestFocus()
-            return false
-        }
-        val color = accent.text.toString().trim().let { if (it.startsWith("#")) it else "#$it" }
-        if (runCatching { android.graphics.Color.parseColor(color) }.isFailure) {
-            accent.error = "Цвет в виде #RRGGBB"
-            accent.requestFocus()
-            return false
-        }
+        val color = ColorPalette.hex(accentColor)
         val srvLines = servers.text.toString().lines().map { it.trim() }.filter { it.isNotEmpty() }
         val badSrv = srvLines.filter { Servers.parseLine(it) == null }
         if (badSrv.isNotEmpty()) {
@@ -188,9 +163,8 @@ class SettingsActivity : Activity() {
             .putBoolean(Prefs.K_CONVERTER, swConverter.isChecked)
             .putBoolean(Prefs.K_NEWS, swNews.isChecked)
             .putString(Prefs.K_NEWS_REGION, newsRegion.text.toString().trim().uppercase().filter { it.isLetter() }.take(2).ifEmpty { "RU" })
-            .putString(Prefs.K_URL, u)
-            .putString(Prefs.K_TOKEN, token.text.toString().trim())
-            .putInt(Prefs.K_INTERVAL, (interval.text.toString().toIntOrNull() ?: 300).coerceAtLeast(Prefs.MIN_INTERVAL))
+            .putString(Prefs.K_URL, "")      // внешний источник для бегущей строки убран
+            .putString(Prefs.K_TOKEN, "")
             .apply()
         val badZones = zones.text.toString().isNotBlank() && Prefs.parseZones(zones.text.toString()).isEmpty()
         if (badZones) toast("Пояса не распознаны — пример: МСК=Europe/Moscow")
@@ -315,28 +289,6 @@ class SettingsActivity : Activity() {
     }
 
     // ---------- источник ----------
-
-    private fun testSource() {
-        val u = url.text.toString().trim()
-        val tk = token.text.toString().trim()
-        hideKeyboard()
-        if (u.isEmpty()) { result.text = "URL пустой — бегущей строки не будет."; return }
-        result.text = "Загружаю…"
-        Thread {
-            val text = try {
-                val d = RemoteSource.fetch(u, tk)
-                buildString {
-                    append("OK")
-                    d.title?.let { append(" · «$it»") }
-                    append(" · ${d.items.size} шт.\n")
-                    d.items.take(12).forEach { append("• ${it.label}: ${it.value}\n") }
-                }
-            } catch (e: Exception) {
-                "Ошибка: ${e.message ?: e.javaClass.simpleName}"
-            }
-            runOnUiThread { if (!isFinishing) result.text = text }
-        }.start()
-    }
 
     private fun setWallpaper() {
         val component = ComponentName(this, InfoWallpaperService::class.java)

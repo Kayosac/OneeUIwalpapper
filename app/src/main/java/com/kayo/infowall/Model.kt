@@ -92,7 +92,7 @@ object Prefs {
         val lat = p.getString(K_LAT, null)?.toDoubleOrNull()
         val lon = p.getString(K_LON, null)?.toDoubleOrNull()
         return Config(
-            url = p.getString(K_URL, "").orEmpty().trim(),
+            url = "",   // бегущая строка — только новости; внешний источник убран
             token = p.getString(K_TOKEN, "").orEmpty().trim(),
             intervalSec = p.getInt(K_INTERVAL, 300).coerceAtLeast(MIN_INTERVAL),
             accent = parseColor(p.getString(K_ACCENT, DEFAULT_ACCENT)),
