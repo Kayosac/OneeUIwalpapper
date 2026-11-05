@@ -152,14 +152,7 @@ class CyberRenderer {
     private var shaderKey = ""
 
     // ---------- рельеф ----------
-    private val rows = 26
-    private val cols = 66
-    private val gx = Array(rows) { FloatArray(cols) }
-    private val gy = Array(rows) { FloatArray(cols) }
-    private val gok = Array(rows) { BooleanArray(cols) }
-    private val rowLines = FloatArray(rows * (cols - 1) * 4)
-    private val colLines = FloatArray(cols * (rows - 1) * 4)
-    private val diagLines = FloatArray((rows - 1) * (cols - 1) * 4)
+    private val terrain = Terrain()
 
 
     // ---------- иконки погоды (в квадрате 26×22) ----------
@@ -203,7 +196,8 @@ class CyberRenderer {
         val dh = h / s                      // видимая высота в макетных единицах (≥ 800)
         // камера «летит»: рыскание, крен и тангаж плавно гуляют во времени
         val t = f.t
-        val yawNow = cfg.yawDeg + 14f * sin(t * 0.05f) + 5f * sin(t * 0.13f + 1f)
+        // не больше ~36°: иначе правый край кадра смотрит вдоль рядов сетки и она обрывается
+        val yawNow = (cfg.yawDeg + 9f * sin(t * 0.05f) + 3f * sin(t * 0.13f + 1f)).coerceIn(0f, 36f)
         val vp = CX - tan(Math.toRadians(yawNow.toDouble())).toFloat() * F
 
         screenScale = s
@@ -293,79 +287,26 @@ class CyberRenderer {
         // небо у горизонта
         c.drawRect(xl, 300f, xr, HZ, skyP)
 
-        // рельеф: летим вперёд, камера качается по высоте
-        buildTerrain(t, yaw)
-        var nr = 0; var nc = 0; var nd = 0
-        for (r in 0 until rows) for (k in 0 until cols - 1) {
-            if (gok[r][k] && gok[r][k + 1]) {
-                rowLines[nr++] = gx[r][k]; rowLines[nr++] = gy[r][k]; rowLines[nr++] = gx[r][k + 1]; rowLines[nr++] = gy[r][k + 1]
+        // рельеф: летим вперёд; яркость отрезков гаснет с глубиной, вдали — горы
+        terrain.build(t, yaw, (W / 2f + ext) / F * 1.3f, CX, HZ, F, CAM)
+        for (b in 0 until Terrain.NB) {
+            val k = (b + 1f) / Terrain.NB
+            val d = terrain.diagBuf[b]; val cl = terrain.colsBuf[b]; val rw = terrain.rowsBuf[b]
+            if (d.n > 0) { line(withA(accent, 0.34f * k), 1f); c.drawLines(d.a, 0, d.n, stroke) }
+            if (cl.n > 0) { line(withA(accent, 0.58f * k), 1.1f); c.drawLines(cl.a, 0, cl.n, stroke) }
+            if (rw.n > 0) {
+                line(withA(accent, 0.2f * k), 4.5f); c.drawLines(rw.a, 0, rw.n, stroke)
+                line(withA(accent, 0.92f * k), 1.4f); c.drawLines(rw.a, 0, rw.n, stroke)
             }
         }
-        for (k in 0 until cols) for (r in 0 until rows - 1) {
-            if (gok[r][k] && gok[r + 1][k]) {
-                colLines[nc++] = gx[r][k]; colLines[nc++] = gy[r][k]; colLines[nc++] = gx[r + 1][k]; colLines[nc++] = gy[r + 1][k]
-            }
-        }
-        for (r in 0 until rows - 1) for (k in 0 until cols - 1) {
-            if (gok[r][k] && gok[r + 1][k + 1]) {
-                diagLines[nd++] = gx[r][k]; diagLines[nd++] = gy[r][k]; diagLines[nd++] = gx[r + 1][k + 1]; diagLines[nd++] = gy[r + 1][k + 1]
-            }
-        }
-        line(withA(accent, 0.34f), 1f); c.drawLines(diagLines, 0, nd, stroke)
-        line(withA(accent, 0.58f), 1.1f); c.drawLines(colLines, 0, nc, stroke)
-        line(withA(accent, 0.2f), 4.5f); c.drawLines(rowLines, 0, nr, stroke)
-        line(withA(accent, 0.92f), 1.4f); c.drawLines(rowLines, 0, nr, stroke)
 
-        // дымка у горизонта прячет мельтешение дальних треугольников
-        c.drawRect(xl, HZ, xr, HZ + FOG_H, fogP)
-
-        // горизонт: три слоя свечения, яркое пятно — в точке схода
+        // мягкое свечение у горизонта — без резкой линии, горы её ломают
         val pulse = 0.8f + 0.2f * sin(t * 1.05f)
         fill.shader = null
-        fill.color = withA(accent, 0.10f * pulse); c.drawRect(xl, HZ - 13f, xr, HZ + 13f, fill)
-        fill.color = withA(accent, 0.28f * pulse); c.drawRect(xl, HZ - 5f, xr, HZ + 5f, fill)
-        horizonP.alpha = (255 * pulse).roundToInt().coerceIn(0, 255)
-        c.save()
-        c.translate(vp, 0f)
-        c.drawRect(xl - vp, HZ - 1.5f, xr - vp, HZ + 1.5f, horizonP)
-        c.restore()
+        fill.color = withA(accent, 0.06f * pulse); c.drawRect(xl, HZ - 26f, xr, HZ + 10f, fill)
+        fill.color = withA(accent, 0.10f * pulse); c.drawRect(xl, HZ - 9f, xr, HZ + 3f, fill)
 
         c.restore()
-    }
-
-    /**
-     * Сетка в мире неподвижна, камера летит вперёд: ряды равномерно по глубине,
-     * сдвигаются на пройденный путь; волны рельефа тоже живут во времени.
-     */
-    private fun buildTerrain(t: Float, yawDeg: Float) {
-        val a = Math.toRadians(yawDeg.toDouble())
-        val ca = cos(a).toFloat(); val sa = sin(a).toFloat()
-        val zN = 0.9f; val zF = 26f
-        val dz = (zF - zN) / (rows - 1)
-        val travel = t * 1.1f                                      // скорость полёта, ед./с
-        val shift = travel % dz
-        val strafe = 3f * sin(t * 0.04f)                           // плавный снос вбок
-        val camH = CAM + 0.12f * sin(t * 0.19f)                    // высота камеры дышит
-        for (r in 0 until rows) {
-            val z = zN + r * dz - shift
-            val wz = z + travel                                    // мировая глубина точки
-            val amp = 0.32f + 0.07f * z
-            for (k in 0 until cols) {
-                val x = -26f + k * 0.8f
-                val wx = x + strafe
-                val hgt = 0.26f * sin(0.45f * wx + 0.3f * wz + 0.55f * t) +
-                    0.18f * sin(0.8f * wz - 0.6f * wx - 0.4f * t) +
-                    0.09f * sin(1.5f * wx + 1.2f * wz + 0.9f * t)
-                val yv = hgt * amp
-                val xc = x * ca - z * sa
-                val zc = x * sa + z * ca
-                if (zc < 0.7f) { gok[r][k] = false; continue }
-                val sx = CX + xc * F / zc
-                val sy = HZ + (camH - yv) * F / zc
-                gok[r][k] = sx > -1100f && sx < 2400f && sy < 1600f
-                gx[r][k] = sx; gy[r][k] = sy
-            }
-        }
     }
 
     // ================= HUD =================
