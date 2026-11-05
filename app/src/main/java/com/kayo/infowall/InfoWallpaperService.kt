@@ -61,6 +61,7 @@ class InfoWallpaperService : WallpaperService() {
         private var nextNetAt = 0L
         private var nextSlowAt = 0L
         private var lastTap = 0L
+        private var fxEdit: FxEdit? = null      // идёт ввод суммы на обоях
 
         // bloom: сцена пишется в RenderNode, поверх кладутся две размытые копии в режиме PLUS
         private var sceneNode: RenderNode? = null
@@ -101,6 +102,7 @@ class InfoWallpaperService : WallpaperService() {
 
         override fun onVisibilityChanged(v: Boolean) {
             visible = v
+            if (!v) closeFx(true)
             handler.removeCallbacks(frame)
             if (v) {
                 renderer.invalidateTime()
@@ -148,12 +150,30 @@ class InfoWallpaperService : WallpaperService() {
             }
         }
 
-        /** Двойной тап по пустому месту — обновить источник и погоду. */
+        /**
+         * Тап по строке конвертера — ввод суммы своей клавиатурой прямо на обоях.
+         * Двойной тап по пустому месту — обновить источник и погоду.
+         */
         override fun onCommand(action: String?, x: Int, y: Int, z: Int, extras: Bundle?, resultRequested: Boolean): Bundle? {
             if (action == WallpaperManager.COMMAND_TAP) {
-                val code = if (cfg.converter) renderer.converterHit(x.toFloat(), y.toFloat()) else null
+                val fx = fxEdit
+                val tx = x.toFloat(); val ty = y.toFloat()
+                if (fx != null) {
+                    val key = renderer.padHit(tx, ty)
+                    val row = renderer.converterHit(tx, ty)
+                    when {
+                        key != null -> if (key.isNotEmpty()) onFxKey(fx, key)
+                        row == fx.code -> closeFx(true)
+                        row != null -> { closeFx(true); startFx(row) }
+                        else -> closeFx(true)            // тап мимо — сохранить и закрыть
+                    }
+                    redraw()
+                    return null
+                }
+                val code = if (cfg.converter) renderer.converterHit(tx, ty) else null
                 if (code != null) {
-                    openConverter(code)
+                    startFx(code)
+                    redraw()
                     return null
                 }
                 val now = SystemClock.elapsedRealtime()
@@ -175,6 +195,8 @@ class InfoWallpaperService : WallpaperService() {
             maybeFetchNews(now)
             maybeFetchRates(now)
             maybeFetchServers(now)
+            // клавиатура сама закрывается через 30 с без нажатий (с сохранением набранного)
+            fxEdit?.let { if (now - it.lastAt > 30_000L) closeFx(true) }
         }
 
         private inner class SrvState {
@@ -243,23 +265,65 @@ class InfoWallpaperService : WallpaperService() {
             }
         }
 
-        private fun openConverter(code: String) {
-            // Android запрещает фоновым приложениям (а обои — фон) открывать окна;
-            // разрешение «Поверх других приложений» снимает этот запрет
-            if (Build.VERSION.SDK_INT >= 23 && !android.provider.Settings.canDrawOverlays(applicationContext)) {
-                android.widget.Toast.makeText(applicationContext,
-                    "Конвертер: разреши InfoWall «Поверх других приложений» (Настройки обоев → Курсы валют)",
-                    android.widget.Toast.LENGTH_LONG).show()
+        // ---------- ввод суммы на обоях ----------
+
+        private fun startFx(code: String) {
+            val cur = rates?.convert(cfg.fxAmount, cfg.fxFrom, code) ?: if (code == cfg.fxFrom) cfg.fxAmount else 1.0
+            fxEdit = FxEdit(code, FxEdit.plain(cur)).apply { lastAt = SystemClock.elapsedRealtime() }
+        }
+
+        private fun onFxKey(fx: FxEdit, key: String) {
+            fx.flashKey = key
+            fx.flashAt = System.currentTimeMillis()
+            fx.lastAt = SystemClock.elapsedRealtime()
+            when {
+                key == FxEdit.KEY_OK -> closeFx(true)
+                key == FxEdit.KEY_CUR -> fx.currencyMode = true
+                key == FxEdit.KEY_BACK -> fx.currencyMode = false
+                key.startsWith(FxEdit.CUR_PREFIX) -> swapCurrency(fx, key.removePrefix(FxEdit.CUR_PREFIX))
+                else -> fx.press(key)
             }
-            try {
-                startActivity(
-                    android.content.Intent(applicationContext, ConverterActivity::class.java)
-                        .putExtra(ConverterActivity.EXTRA_CODE, code)
-                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK),
-                )
-            } catch (_: Exception) {
-                // система не дала открыть окно из фона — остаётся иконка «Конвертер» в списке приложений
+            // погасить подсветку клавиши даже без анимации
+            handler.postDelayed({ redraw() }, 200)
+        }
+
+        /** Валюта строки меняется на выбранную; если она уже была в списке — меняются местами. */
+        private fun swapCurrency(fx: FxEdit, picked: String) {
+            fx.currencyMode = false
+            if (picked == fx.code) return
+            val list = RatesSource.parseCodes(cfg.currencies).toMutableList()
+            val at = list.indexOf(fx.code)
+            val was = list.indexOf(picked)
+            if (was >= 0) list[was] = fx.code
+            if (at >= 0) list[at] = picked else list.add(0, picked)
+            val typed = fx.value() ?: 0.0
+            val conv = rates?.convert(typed, fx.code, picked)
+            fx.code = picked
+            fx.input = conv?.let { FxEdit.plain(it) } ?: fx.input
+            fx.fresh = true
+            Prefs.get(applicationContext).edit()
+                .putString(Prefs.K_CURRENCIES, list.joinToString(", "))
+                .putString(Prefs.K_FX_FROM, picked)
+                .putString(Prefs.K_FX_AMOUNT, (conv ?: typed).toString())
+                .apply()
+        }
+
+        private fun closeFx(save: Boolean) {
+            val fx = fxEdit ?: return
+            fxEdit = null
+            val v = fx.value()
+            if (save && v != null && !fx.fresh) {
+                Prefs.get(applicationContext).edit()
+                    .putString(Prefs.K_FX_AMOUNT, v.toString())
+                    .putString(Prefs.K_FX_FROM, fx.code)
+                    .apply()
             }
+        }
+
+        private fun redraw() {
+            if (!visible) return
+            handler.removeCallbacks(frame)
+            frame.run()
         }
 
         private fun maybeFetchRates(now: Long) {
@@ -341,7 +405,7 @@ class InfoWallpaperService : WallpaperService() {
             try {
                 c = holder.lockHardwareCanvas() ?: return
                 val t = (SystemClock.elapsedRealtime() - startedAt) / 1000f
-                val fd = FrameData(cfg, if (cfg.fps <= 0) 0f else t, stats, remote, remoteError, weather, weatherNote, cfg.city, news, rates, serverViews)
+                val fd = FrameData(cfg, if (cfg.fps <= 0) 0f else t, stats, remote, remoteError, weather, weatherNote, cfg.city, news, rates, serverViews, fxEdit)
                 if (Build.VERSION.SDK_INT >= 31 && cfg.glow > 0f && c.isHardwareAccelerated) drawWithBloom(c, fd)
                 else renderer.draw(c, width, height, fd)
                 // чёрный низ — поверх всего, включая свечение

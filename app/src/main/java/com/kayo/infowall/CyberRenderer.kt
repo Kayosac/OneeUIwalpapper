@@ -38,6 +38,7 @@ class FrameData(
     val news: List<Headline> = emptyList(),
     val rates: Rates? = null,
     val servers: List<ServerView> = emptyList(),
+    val fx: FxEdit? = null,
 )
 
 /**
@@ -67,6 +68,18 @@ class CyberRenderer {
     private var fxRowCodes: List<String> = emptyList()
     private var screenScale = 1f
     private var screenOx = 0f
+
+    // клавиатура ввода суммы на обоях: экранные прямоугольники клавиш
+    private val padOnScreen = RectF()
+    private val padKeys = ArrayList<Pair<String, RectF>>()
+    private val padPool = ArrayList<RectF>()
+
+    /** Клавиша под тапом; "" — тап по клавиатуре мимо клавиш; null — мимо клавиатуры. */
+    fun padHit(x: Float, y: Float): String? {
+        if (padOnScreen.isEmpty || !padOnScreen.contains(x, y)) return null
+        for ((k, r) in padKeys) if (r.contains(x, y)) return k
+        return ""
+    }
 
     /** Валюта строки конвертера под точкой тапа (экранные пиксели) или null. */
     fun converterHit(x: Float, y: Float): String? {
@@ -753,8 +766,14 @@ class CyberRenderer {
         val convW = if (f.cfg.converter) 168f + 10f else 0f
         val cr = uiR - convW
         val wl = cr - 446f
-        if (f.cfg.weather) drawWeather(c, f, wl, top, wl + 268f, bottom)
-        drawCalendar(c, wl + 278f, top, cr, bottom)
+        // пока вводится сумма — на месте погоды и календаря клавиатура (ниже панелей, до ряда приложений)
+        if (f.fx != null && f.cfg.converter) {
+            drawPad(c, f, f.fx, wl, top, cr, 600f)
+        } else {
+            padOnScreen.setEmpty()
+            if (f.cfg.weather) drawWeather(c, f, wl, top, wl + 268f, bottom)
+            drawCalendar(c, wl + 278f, top, cr, bottom)
+        }
         if (f.cfg.converter) drawRates(c, f, uiR - 168f, top, uiR, bottom) else converterOnScreen.setEmpty()
     }
 
@@ -808,10 +827,13 @@ class CyberRenderer {
         val bottom = t + codes.size * (rowH + gap) - gap
         converterOnScreen.set(screenOx + l * k, t * k, screenOx + r * k, bottom * k)
         val rates = f.rates
+        val fx = f.fx
+        val amount = if (fx != null) fx.value() ?: 0.0 else f.cfg.fxAmount
+        val from = fx?.code ?: f.cfg.fxFrom
         codes.forEachIndexed { i, code ->
             val y = t + i * (rowH + gap)
             fxRowRects[i].set(screenOx + l * k, y * k, screenOx + r * k, (y + rowH) * k)
-            val active = code == f.cfg.fxFrom
+            val active = code == from
             // окошко валюты
             box(c, l, y, l + codeW, y + rowH, false)
             text.typeface = labelFace; text.textSize = 10f; text.letterSpacing = 0.08f
@@ -819,8 +841,12 @@ class CyberRenderer {
             center(c, code, l + codeW / 2f, y + ty)
             // окошко суммы
             box(c, l + codeW + gap, y, r, y + rowH, active)
-            val v = rates?.convert(f.cfg.fxAmount, f.cfg.fxFrom, code)
-            val s = if (v == null) "—" else fmtMoney(v)
+            val v = rates?.convert(amount, from, code)
+            // в редактируемой строке — набираемое число с мигающим курсором
+            val s = if (fx != null && code == fx.code) {
+                val caret = if ((System.currentTimeMillis() / 500) % 2 == 0L) "_" else " "
+                (if (fx.fresh) fmtMoney(amount) else fx.input.ifEmpty { "0" }) + caret
+            } else if (v == null) "—" else fmtMoney(v)
             text.typeface = numFace; text.textSize = 11f; text.letterSpacing = 0f
             text.color = face
             if (active) text.setShadowLayer(6f, 0f, 0f, withA(accent, 0.7f))
@@ -828,6 +854,50 @@ class CyberRenderer {
             text.clearShadowLayer()
         }
     }
+
+    /** Клавиатура: цифры 4×4 или сетка валют. Клавиши записываются в экранных координатах для тапа. */
+    private fun drawPad(c: Canvas, f: FrameData, fx: FxEdit, l: Float, t: Float, r: Float, b: Float) {
+        val k = f.cfg.uiScale * screenScale
+        padOnScreen.set(screenOx + l * k, t * k, screenOx + r * k, b * k)
+        padPool.addAll(padKeys.map { it.second }); padKeys.clear()
+        panel(c, l, t, r, b)
+        val pad = 8f; val g = 6f
+        val flashOn = fx.flashKey != null && System.currentTimeMillis() - fx.flashAt < 160
+        curHave = RatesSource.parseCodes(f.cfg.currencies)
+        val known = f.rates?.rates
+        val grid: List<List<String>> = if (fx.currencyMode) {
+            val codes = CurrencyPicker.POPULAR.filter { known == null || known.containsKey(it) }.take(20)
+            codes.map { FxEdit.CUR_PREFIX + it }.chunked(5) + listOf(listOf(FxEdit.KEY_BACK))
+        } else FxEdit.DIGIT_ROWS
+        val rowsN = grid.size
+        val kh = (b - t - pad * 2 - g * (rowsN - 1)) / rowsN
+        grid.forEachIndexed { ri, row ->
+            val kw = (r - l - pad * 2 - g * (row.size - 1)) / row.size
+            row.forEachIndexed { ci, key ->
+                val x0 = l + pad + ci * (kw + g)
+                val y0 = t + pad + ri * (kh + g)
+                val pressed = flashOn && key == fx.flashKey
+                val strong = key == FxEdit.KEY_OK || (key.startsWith(FxEdit.CUR_PREFIX) && key.removePrefix(FxEdit.CUR_PREFIX) == fx.code)
+                box(c, x0, y0, x0 + kw, y0 + kh, strong || pressed)
+                if (pressed) { fill.color = withA(accent, 0.35f); c.drawRect(x0, y0, x0 + kw, y0 + kh, fill) }
+                val lab = FxEdit.keyLabel(key)
+                val isNum = lab.all { it.isDigit() || it == '.' }
+                text.typeface = if (isNum) numFace else labelFace
+                text.textSize = if (isNum) 24f else if (key.startsWith(FxEdit.CUR_PREFIX)) 13f else 11f
+                text.letterSpacing = if (isNum) 0f else 0.15f
+                val taken = key.startsWith(FxEdit.CUR_PREFIX) && key.removePrefix(FxEdit.CUR_PREFIX) in curHave
+                text.color = when { pressed -> Color.WHITE; strong -> accent; taken -> withA(label, 0.5f); isNum -> face; else -> label }
+                if (strong) text.setShadowLayer(8f, 0f, 0f, withA(accent, 0.7f))
+                center(c, lab, x0 + kw / 2f, y0 + kh / 2f + text.textSize * 0.36f)
+                text.clearShadowLayer(); text.letterSpacing = 0f
+                val rr = if (padPool.isEmpty()) RectF() else padPool.removeAt(padPool.size - 1)
+                rr.set(screenOx + x0 * k, y0 * k, screenOx + (x0 + kw) * k, (y0 + kh) * k)
+                padKeys += key to rr
+            }
+        }
+    }
+
+    private var curHave: List<String> = emptyList()
 
     private fun box(c: Canvas, l: Float, t: Float, r: Float, b: Float, active: Boolean) {
         fill.shader = null

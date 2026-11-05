@@ -22,7 +22,7 @@ import java.util.Locale
  */
 object CurrencyPicker {
 
-    private val POPULAR = listOf(
+    val POPULAR = listOf(
         "KZT", "RUB", "USD", "EUR", "CNY", "GBP", "TRY", "KGS", "UZS", "AED",
         "GEL", "AMD", "AZN", "BYN", "UAH", "JPY", "KRW", "CHF", "THB", "INR",
     )
