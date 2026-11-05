@@ -21,6 +21,7 @@ import kotlin.math.abs
 /**
  * Маленькое окошко ввода по тапу на строку конвертера: [валюта][сумма].
  * Сумма сохраняется на каждое изменение — обои сразу пересчитывают все строки.
+ * Тап по коду валюты — заменить валюту этой строки (поиск по названию).
  * Закрывается тапом мимо окошка (Enter не нужен).
  */
 class ConverterActivity : Activity() {
@@ -30,7 +31,7 @@ class ConverterActivity : Activity() {
         val cfg = Prefs.load(this)
         val accent = cfg.accent
         val codes = RatesSource.parseCodes(cfg.currencies).ifEmpty { listOf("KZT", "RUB", "USD", "EUR") }
-        val code = intent.getStringExtra(EXTRA_CODE)?.takeIf { it in codes } ?: cfg.fxFrom.takeIf { it in codes } ?: codes.first()
+        var code = intent.getStringExtra(EXTRA_CODE)?.takeIf { it in codes } ?: cfg.fxFrom.takeIf { it in codes } ?: codes.first()
         val fonts = Fonts.load(this, cfg.font)
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN or WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
 
@@ -46,15 +47,16 @@ class ConverterActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             isClickable = true   // тап по окошку не закрывает его
         }
-        row.addView(TextView(this).apply {
-            text = code
+        val codeView = TextView(this)
+        row.addView(codeView.apply {
+            text = "$code ▾"
             typeface = fonts.label
             setTextColor(accent)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
             letterSpacing = 0.08f
             gravity = Gravity.CENTER
             background = frame(false)
-        }, LinearLayout.LayoutParams(dp(54), dp(38)).apply { rightMargin = dp(4) })
+        }, LinearLayout.LayoutParams(dp(64), dp(38)).apply { rightMargin = dp(4) })
 
         val field = EditText(this).apply {
             typeface = fonts.num
@@ -83,6 +85,29 @@ class ConverterActivity : Activity() {
                     .apply()
             }
         })
+        // замена валюты строки: выбранная встаёт на это место, а если уже была в списке — меняются местами
+        codeView.setOnClickListener {
+            val now = RatesSource.parseCodes(Prefs.load(this).currencies).ifEmpty { codes }
+            CurrencyPicker.show(this, "Валюта вместо $code", now) { picked ->
+                if (picked == code) return@show
+                val list = now.toMutableList()
+                val at = list.indexOf(code).let { if (it < 0) 0 else it }
+                val was = list.indexOf(picked)
+                if (was >= 0) list[was] = code
+                if (at < list.size) list[at] = picked else list += picked
+                val typed = field.text.toString().replace(" ", "").replace(',', '.').toDoubleOrNull()
+                val conv = typed?.let { RatesSource.cached(this)?.convert(it, code, picked) }
+                CurrencyPicker.save(this, list)
+                Prefs.get(this).edit()
+                    .putString(Prefs.K_FX_FROM, picked)
+                    .apply { if (conv != null) putString(Prefs.K_FX_AMOUNT, conv.toString()) }
+                    .apply()
+                code = picked
+                codeView.text = "$picked ▾"
+                if (conv != null) field.setText(plain(conv))
+                field.requestFocus(); field.selectAll()
+            }
+        }
         row.addView(field, LinearLayout.LayoutParams(0, dp(38), 1f))
 
         val root = FrameLayout(this).apply {

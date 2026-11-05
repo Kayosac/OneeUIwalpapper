@@ -48,7 +48,8 @@ class SettingsActivity : Activity() {
     private val fontIds = HashMap<FontPreset, Int>()
     private lateinit var fontStatus: TextView
     private lateinit var swConverter: Switch
-    private lateinit var currencies: EditText
+    private lateinit var curList: LinearLayout
+    private val curCodes = ArrayList<String>()
     private lateinit var swNews: Switch
     private lateinit var newsRegion: EditText
     private lateinit var servers: EditText
@@ -115,9 +116,11 @@ class SettingsActivity : Activity() {
         // --- курсы ---
         col += header("Курсы валют")
         swConverter = switch("Конвертер на экране (тап по строке — ввести сумму)", cfg.converter); col += swConverter
-        col += label("До семи валют через запятую — столбик конвертера растягивается под высоту погоды")
-        currencies = field(Prefs.DEFAULT_CURRENCIES, cfg.currencies, InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS)
-        col += currencies
+        col += label("До ${RatesSource.MAX_CODES} валют. Тап по валюте — заменить, стрелки — порядок. Меняется на обоях сразу.")
+        curCodes += RatesSource.parseCodes(cfg.currencies)
+        curList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        col += curList
+        renderCurrencies()
         col += button("Открыть конвертер") { startActivity(Intent(this, ConverterActivity::class.java)) }
 
         // --- новости ---
@@ -229,7 +232,6 @@ class SettingsActivity : Activity() {
             .putBoolean(Prefs.K_WEATHER, swWeather.isChecked)
             .putString(Prefs.K_FONT, selectedFont().name)
             .putBoolean(Prefs.K_CONVERTER, swConverter.isChecked)
-            .putString(Prefs.K_CURRENCIES, RatesSource.parseCodes(currencies.text.toString()).joinToString(", ").ifEmpty { Prefs.DEFAULT_CURRENCIES })
             .putBoolean(Prefs.K_NEWS, swNews.isChecked)
             .putString(Prefs.K_NEWS_REGION, newsRegion.text.toString().trim().uppercase().filter { it.isLetter() }.take(2).ifEmpty { "RU" })
             .putString(Prefs.K_URL, u)
@@ -239,6 +241,56 @@ class SettingsActivity : Activity() {
         val badZones = zones.text.toString().isNotBlank() && Prefs.parseZones(zones.text.toString()).isEmpty()
         if (badZones) toast("Пояса не распознаны — пример: МСК=Europe/Moscow")
         return true
+    }
+
+    // ---------- валюты ----------
+
+    private fun renderCurrencies() {
+        curList.removeAllViews()
+        curCodes.forEachIndexed { i, code ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                minimumHeight = dp(48)
+            }
+            row.addView(TextView(this).apply {
+                text = "$code   ${CurrencyPicker.name(code)}"
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+                setPadding(dp(4), dp(10), dp(4), dp(10))
+                isClickable = true
+                setBackgroundResource(android.R.drawable.list_selector_background)
+                setOnClickListener {
+                    CurrencyPicker.show(this@SettingsActivity, "Валюта вместо $code", curCodes) { picked ->
+                        val was = curCodes.indexOf(picked)
+                        if (was >= 0) curCodes[was] = code   // уже была — меняются местами
+                        curCodes[i] = picked
+                        commitCurrencies()
+                    }
+                }
+            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            fun small(t: String, enabled: Boolean, act: () -> Unit) = Button(this, null, android.R.attr.borderlessButtonStyle).apply {
+                text = t
+                isEnabled = enabled
+                minWidth = dp(44); minimumWidth = dp(44)
+                setOnClickListener { act() }
+            }
+            row.addView(small("↑", i > 0) { java.util.Collections.swap(curCodes, i, i - 1); commitCurrencies() })
+            row.addView(small("↓", i < curCodes.size - 1) { java.util.Collections.swap(curCodes, i, i + 1); commitCurrencies() })
+            row.addView(small("✕", curCodes.size > 1) { curCodes.removeAt(i); commitCurrencies() })
+            curList.addView(row)
+        }
+        if (curCodes.size < RatesSource.MAX_CODES) {
+            curList.addView(button("+ Добавить валюту") {
+                CurrencyPicker.show(this, "Добавить валюту", curCodes) { picked ->
+                    if (picked !in curCodes) { curCodes += picked; commitCurrencies() }
+                }
+            })
+        }
+    }
+
+    private fun commitCurrencies() {
+        CurrencyPicker.save(this, curCodes)
+        renderCurrencies()
     }
 
     // ---------- геолокация ----------
