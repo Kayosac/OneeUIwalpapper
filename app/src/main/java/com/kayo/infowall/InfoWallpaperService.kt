@@ -271,6 +271,12 @@ class InfoWallpaperService : WallpaperService() {
 
         /** Пробует интенты по очереди: первый, для которого нашлось приложение, открывается. */
         private fun launchFirst(vararg intents: android.content.Intent) {
+            // обои для Android — фоновое приложение; без этого разрешения запуск молча блокируется
+            if (Build.VERSION.SDK_INT >= 23 && !android.provider.Settings.canDrawOverlays(applicationContext)) {
+                android.widget.Toast.makeText(applicationContext,
+                    "InfoWall: разреши «Поверх других приложений» — Настройки обоев → «Открытие приложений»",
+                    android.widget.Toast.LENGTH_LONG).show()
+            }
             for (i in intents) {
                 try {
                     startActivity(i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED))

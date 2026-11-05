@@ -43,6 +43,7 @@ class SettingsActivity : Activity() {
     private lateinit var placeStatus: TextView
     private lateinit var swConverter: Switch
     private lateinit var curList: LinearLayout
+    private lateinit var overlayStatus: TextView
     private val curCodes = ArrayList<String>()
     private lateinit var swNews: Switch
     private lateinit var newsRegion: EditText
@@ -108,6 +109,18 @@ class SettingsActivity : Activity() {
         col += label("Регион подборки: RU, KZ, BY, UA… (две буквы)")
         newsRegion = field("RU", cfg.newsRegion, InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS)
         col += newsRegion
+
+        // --- открытие приложений ---
+        col += header("Открытие приложений с обоев")
+        col += label("Тап по часам — «Часы», по календарю — Google Календарь. Android разрешает обоям открывать приложения только с разрешением «Поверх других приложений».")
+        col += button("Выдать разрешение") {
+            try {
+                startActivity(Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+            } catch (_: ActivityNotFoundException) {
+                toast("Открой: Настройки → Приложения → InfoWall → Поверх других приложений")
+            }
+        }
+        overlayStatus = status(""); col += overlayStatus
 
         // --- серверы ---
         col += header("Серверы (до ${Servers.MAX})")
@@ -182,6 +195,13 @@ class SettingsActivity : Activity() {
         val badZones = zones.text.toString().isNotBlank() && Prefs.parseZones(zones.text.toString()).isEmpty()
         if (badZones) toast("Пояса не распознаны — пример: МСК=Europe/Moscow")
         return true
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val ok = Build.VERSION.SDK_INT < 23 || android.provider.Settings.canDrawOverlays(this)
+        overlayStatus.text = if (ok) "✓ Разрешение есть — часы и календарь на обоях открывают приложения"
+        else "✗ Разрешения нет — тап по часам и календарю ничего не откроет"
     }
 
     // ---------- валюты ----------
