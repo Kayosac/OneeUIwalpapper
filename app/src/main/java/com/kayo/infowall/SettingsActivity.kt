@@ -1,7 +1,6 @@
 package com.kayo.infowall
 
 import android.Manifest
-import android.app.Activity
 import android.app.WallpaperManager
 import android.content.ActivityNotFoundException
 import android.content.ComponentName
@@ -30,7 +29,7 @@ import java.util.Locale
  * Настройки поверх живых обоев: панель снизу, обои видны сверху.
  * Каждое изменение сразу пишется в настройки — обои перерисовываются на лету, кнопки «Сохранить» нет.
  */
-class SettingsActivity : Activity() {
+class SettingsActivity : OwnActivity() {
 
     private lateinit var zones: EditText
     private lateinit var swWeather: Switch
@@ -252,7 +251,8 @@ class SettingsActivity : Activity() {
         else "✗ Разрешения нет — тап по часам и календарю ничего не откроет"
         tzStatus.text = when {
             TapGuardService.instance != null -> "✓ Страж работает — тапы по меню приложений и папкам виджеты не задевают" +
-                TapGuardService.lastHit.takeIf { it.isNotEmpty() }?.let { "\nПоследний тап по обоям: $it" }.orEmpty()
+                TapGuardService.lastHit.takeIf { it.isNotEmpty() }?.let { "\nПоследний тап по обоям: $it" }.orEmpty() +
+                TapGuardService.lastEvent.takeIf { it.isNotEmpty() }?.let { "\nПоследнее нажатие в лаунчере: $it" }.orEmpty()
             TapGuardService.enabled(this) -> "… Страж включён, подключается"
             else -> "✗ Страж выключен — тап по иконке в меню приложений может задеть виджет под ней"
         }

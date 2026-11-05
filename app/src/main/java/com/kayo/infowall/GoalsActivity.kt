@@ -1,6 +1,5 @@
 package com.kayo.infowall
 
-import android.app.Activity
 import android.app.DatePickerDialog
 import android.graphics.Color
 import android.os.Bundle
@@ -25,7 +24,7 @@ import java.util.Locale
  * Цели по тапу на блок колец: 6 строк [название][дата][✕].
  * Панель снизу, сверху видны живые обои — кольца меняются сразу.
  */
-class GoalsActivity : Activity() {
+class GoalsActivity : OwnActivity() {
 
     private val goals = ArrayList<Goal>()
     private val fmt = DateTimeFormatter.ofPattern("d MMM yyyy", Locale("ru"))

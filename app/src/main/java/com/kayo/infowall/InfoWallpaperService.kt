@@ -112,7 +112,7 @@ open class InfoWallpaperService : WallpaperService() {
 
         override fun onVisibilityChanged(v: Boolean) {
             visible = v
-            if (!v) closeFx(true)
+            if (!v) { pendingTap?.let { handler.removeCallbacks(it) }; pendingTap = null; closeFx(true) }
             handler.removeCallbacks(frame)
             if (v) {
                 renderer.invalidateTime()
@@ -189,10 +189,32 @@ open class InfoWallpaperService : WallpaperService() {
         private var downValid = false
         private var lastTouchTapAt = 0L
 
+        private var pendingTap: Runnable? = null
+
+        /**
+         * Тап по обоям. Действие — с короткой задержкой, и отменяется, если за это время:
+         *  - обои скрылись (тап открыл приложение из меню или со стола);
+         *  - лаунчер сообщил о нажатии (иконка, папка, пункт меню) — это видит страж касаний;
+         *  - открыто своё окно поверх обоев (настройки, формула, цели).
+         * Клавиатура суммы, пока открыта, берёт тапы сразу.
+         */
         private fun onRawTap(x: Float, y: Float) {
+            if (OwnUi.busy()) return
+            val fx = fxEdit
+            if (fx != null && (renderer.padHit(x, y) != null || renderer.converterHit(x, y) != null)) { handleTap(x, y); return }
             val guard = TapGuardService.instance
             if (guard != null && guard.ownsPoint(x.toInt(), y.toInt()) == true) return
-            handleTap(x, y)
+            val at = SystemClock.uptimeMillis()
+            pendingTap?.let { handler.removeCallbacks(it) }
+            val r = Runnable {
+                pendingTap = null
+                if (!visible || OwnUi.busy()) return@Runnable
+                if (TapGuardService.instance != null && TapGuardService.lastLauncherEventAt >= at - 40) return@Runnable
+                handleTap(x, y)
+            }
+            pendingTap = r
+            // со стражем нажатие лаунчера приходит за десятки мс; без него ждём, пока приложение закроет обои
+            handler.postDelayed(r, if (guard != null) 300L else 550L)
         }
 
         override fun onTouchEvent(e: android.view.MotionEvent) {

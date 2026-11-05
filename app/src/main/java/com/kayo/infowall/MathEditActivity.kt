@@ -1,6 +1,5 @@
 package com.kayo.infowall
 
-import android.app.Activity
 import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Bundle
@@ -23,7 +22,7 @@ import android.widget.TextView
  * Своя формула для виджета «Формула»: тап по плоскости на обоях. Панель снизу, виджет сверху виден —
  * поверхность меняется прямо по ходу набора (каждая верная формула сразу уходит на обои).
  */
-class MathEditActivity : Activity() {
+class MathEditActivity : OwnActivity() {
 
     private lateinit var input: EditText
     private lateinit var err: TextView

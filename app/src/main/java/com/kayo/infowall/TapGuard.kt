@@ -25,7 +25,26 @@ import android.view.accessibility.AccessibilityWindowInfo
 class TapGuardService : AccessibilityService() {
 
     override fun onServiceConnected() { instance = this }
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+    /**
+     * Нажатия лаунчера (иконка, папка, пункт меню, долгое нажатие) и смена окон (открылось приложение,
+     * всплыла папка): обои отменяют свой тап, если такое пришло сразу после него. Запоминаем только время
+     * и тип — без текста.
+     */
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        val e = event ?: return
+        val pkg = e.packageName?.toString() ?: return
+        if (pkg == packageName) return                       // свои окна — их отсекает OwnUi
+        val launcher = pkg == homePackage()
+        val hit = when (e.eventType) {
+            AccessibilityEvent.TYPE_VIEW_CLICKED, AccessibilityEvent.TYPE_VIEW_LONG_CLICKED -> launcher
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> true
+            else -> false
+        }
+        if (hit) {
+            lastLauncherEventAt = android.os.SystemClock.uptimeMillis()
+            lastEvent = "${if (launcher) "лаунчер" else pkg} · ${AccessibilityEvent.eventTypeToString(e.eventType)} · ${e.className?.toString()?.substringAfterLast('.')}"
+        }
+    }
     override fun onInterrupt() {}
     override fun onUnbind(intent: Intent?): Boolean { if (instance === this) instance = null; return super.onUnbind(intent) }
     override fun onDestroy() { if (instance === this) instance = null; super.onDestroy() }
@@ -90,6 +109,12 @@ class TapGuardService : AccessibilityService() {
     companion object {
         @Volatile var instance: TapGuardService? = null
             private set
+
+        /** Время последнего нажатия в лаунчере или смены окна (uptimeMillis). */
+        @Volatile var lastLauncherEventAt = 0L
+
+        /** Последнее такое событие — для строки статуса в настройках. */
+        @Volatile var lastEvent: String = ""
 
         /** Что оказалось под последним тапом по обоям — для строки статуса в настройках. */
         @Volatile var lastHit: String = ""

@@ -1,6 +1,5 @@
 package com.kayo.infowall
 
-import android.app.Activity
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
@@ -24,7 +23,7 @@ import kotlin.math.abs
  * Тап по коду валюты — заменить валюту этой строки (поиск по названию).
  * Закрывается тапом мимо окошка (Enter не нужен).
  */
-class ConverterActivity : Activity() {
+class ConverterActivity : OwnActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
