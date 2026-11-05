@@ -63,10 +63,8 @@ class InfoWallpaperService : WallpaperService() {
         private var lastTap = 0L
         private var fxEdit: FxEdit? = null      // идёт ввод суммы на обоях
 
-        // bloom: сцена пишется в RenderNode, поверх кладутся две размытые копии в режиме PLUS
+        // bloom: сцена пишется в RenderNode с эффектом «сцена + размытая копия»
         private var sceneNode: RenderNode? = null
-        private var bloomNear: RenderNode? = null
-        private var bloomFar: RenderNode? = null
         private var bloomKey = ""
 
         private val frame = object : Runnable {
@@ -417,40 +415,45 @@ class InfoWallpaperService : WallpaperService() {
             }
         }
 
+        /**
+         * Свечение: один RenderNode со сценой и эффектом «сцена + размытая копия» (BlendMode.PLUS).
+         * Сила — яркость размытой копии через цветовую матрицу, радиус тоже растёт с силой.
+         */
         @TargetApi(31)
         private fun drawWithBloom(c: Canvas, fd: FrameData) {
             if (Build.VERSION.SDK_INT < 31) return
-            val scene = sceneNode ?: RenderNode("scene").also { sceneNode = it }
-            scene.setPosition(0, 0, width, height)
-            val rc = scene.beginRecording(width, height)
-            try { renderer.draw(rc, width, height, fd) } finally { scene.endRecording() }
-
+            val node = sceneNode ?: RenderNode("scene").also { sceneNode = it }
             val key = "$width|$height|${cfg.glow}"
             if (key != bloomKey) {
                 bloomKey = key
-                val s = minOf(width / 1280f, height / 800f)
-                bloomNear = makeBloom("bloomNear", 7f * s, 0.75f * cfg.glow)
-                bloomFar = makeBloom("bloomFar", 26f * s, 0.6f * cfg.glow)
+                node.setPosition(0, 0, width, height)
+                node.setRenderEffect(bloomEffect())
             }
-            c.drawRenderNode(scene)
-            for (b in listOfNotNull(bloomNear, bloomFar)) {
-                val r = b.beginRecording(width, height)
-                try { r.drawRenderNode(scene) } finally { b.endRecording() }
-                c.drawRenderNode(b)
-            }
+            val rc = node.beginRecording(width, height)
+            try { renderer.draw(rc, width, height, fd) } finally { node.endRecording() }
+            c.drawRenderNode(node)
         }
 
         @TargetApi(31)
-        private fun makeBloom(name: String, radius: Float, strength: Float): RenderNode? {
-            if (Build.VERSION.SDK_INT < 31) return null
-            return RenderNode(name).apply {
-                setPosition(0, 0, width, height)
-                setRenderEffect(RenderEffect.createBlurEffect(radius, radius, Shader.TileMode.DECAL))
-                setUseCompositingLayer(true, Paint().apply {
-                    blendMode = BlendMode.PLUS
-                    alpha = (strength.coerceIn(0f, 1f) * 255).toInt()
-                })
+        private fun bloomEffect(): RenderEffect {
+            val s = minOf(width / 1280f, height / 800f)
+            val g = cfg.glow.coerceIn(0f, 2f)
+            fun glowLayer(radius: Float, gain: Float): RenderEffect {
+                val k = gain * g
+                val m = android.graphics.ColorMatrix(floatArrayOf(
+                    k, 0f, 0f, 0f, 0f,
+                    0f, k, 0f, 0f, 0f,
+                    0f, 0f, k, 0f, 0f,
+                    0f, 0f, 0f, 1f, 0f,
+                ))
+                return RenderEffect.createColorFilterEffect(
+                    android.graphics.ColorMatrixColorFilter(m),
+                    RenderEffect.createBlurEffect(radius * s * (0.6f + 0.4f * g), radius * s * (0.6f + 0.4f * g), Shader.TileMode.DECAL),
+                )
             }
+            val halo = RenderEffect.createBlendModeEffect(glowLayer(26f, 0.55f), glowLayer(7f, 0.7f), BlendMode.PLUS)
+            // исходная сцена (нулевой сдвиг) + свечение поверх
+            return RenderEffect.createBlendModeEffect(RenderEffect.createOffsetEffect(0f, 0f), halo, BlendMode.PLUS)
         }
     }
 }

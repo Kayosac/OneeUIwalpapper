@@ -470,7 +470,7 @@ class CyberRenderer {
         val nSrv = min(2, f.servers.size)
         val cols = 2 + nSrv
         val gap = 24f
-        val cw = min(260f, (x1 - x0 - gap * (cols - 1)) / cols)
+        val cw = (x1 - x0 - gap * (cols - 1)) / cols
         val colW = cw; val netW = cw; val srvW = cw
         val xB = x0 + colW + gap
         fill.shader = null
@@ -768,7 +768,7 @@ class CyberRenderer {
         val wl = cr - 446f
         // пока вводится сумма — на месте погоды и календаря клавиатура (ниже панелей, до ряда приложений)
         if (f.fx != null && f.cfg.converter) {
-            drawPad(c, f, f.fx, wl, top, cr, 600f)
+            drawPad(c, f, f.fx, cr - 640f, top, cr, 820f)   // крупные клавиши: перекрывает и часть сцены
         } else {
             padOnScreen.setEmpty()
             if (f.cfg.weather) drawWeather(c, f, wl, top, wl + 268f, bottom)
@@ -883,7 +883,7 @@ class CyberRenderer {
                 val lab = FxEdit.keyLabel(key)
                 val isNum = lab.all { it.isDigit() || it == '.' }
                 text.typeface = if (isNum) numFace else labelFace
-                text.textSize = if (isNum) 24f else if (key.startsWith(FxEdit.CUR_PREFIX)) 13f else 11f
+                text.textSize = if (isNum) 30f else if (key.startsWith(FxEdit.CUR_PREFIX)) 13f else 11f
                 text.letterSpacing = if (isNum) 0f else 0.15f
                 val taken = key.startsWith(FxEdit.CUR_PREFIX) && key.removePrefix(FxEdit.CUR_PREFIX) in curHave
                 text.color = when { pressed -> Color.WHITE; strong -> accent; taken -> withA(label, 0.5f); isNum -> face; else -> label }

@@ -58,7 +58,7 @@ object Prefs {
     const val K_ACCENT = "accent"
     const val K_FPS = "fps"
     const val K_GLOW = "glow"
-    const val K_UI_SCALE = "ui_scale"
+    const val UI_SCALE = 0.6f   // масштаб интерфейса зафиксирован
     const val K_NEWS = "news"
     const val K_CONVERTER = "converter"
     const val K_CURRENCIES = "currencies"
@@ -98,7 +98,7 @@ object Prefs {
             accent = parseColor(p.getString(K_ACCENT, DEFAULT_ACCENT)),
             fps = p.getInt(K_FPS, 20).coerceIn(0, 30),
             glow = p.getFloat(K_GLOW, 1f).coerceIn(0f, 2f),
-            uiScale = p.getFloat(K_UI_SCALE, 0.8f).coerceIn(0.6f, 1f),
+            uiScale = UI_SCALE,
             news = p.getBoolean(K_NEWS, true),
             converter = p.getBoolean(K_CONVERTER, true),
             currencies = p.getString(K_CURRENCIES, DEFAULT_CURRENCIES).orEmpty().ifBlank { DEFAULT_CURRENCIES }

@@ -37,7 +37,6 @@ class SettingsActivity : Activity() {
     private lateinit var accent: EditText
     private lateinit var fps: EditText
     private lateinit var glow: EditText
-    private lateinit var uiScale: EditText
     private lateinit var shadeSolid: EditText
     private lateinit var shadeFade: EditText
     private lateinit var yaw: EditText
@@ -78,8 +77,6 @@ class SettingsActivity : Activity() {
         fps = field("20", cfg.fps.toString(), InputType.TYPE_CLASS_NUMBER); col += fps
         col += label("Свечение (bloom): 0 — выкл, 1 — норма, до 2 — сильнее")
         glow = field("1", trim(cfg.glow), InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL); col += glow
-        col += label("Масштаб интерфейса: 0.6–1 (0.8 — как в макете)")
-        uiScale = field("0.8", trim(cfg.uiScale), InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL); col += uiScale
         col += label("Чёрный низ под доком, % высоты экрана (подгони под свой док)")
         shadeSolid = field("9.3", trim(cfg.shadeSolid * 100f), InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL); col += shadeSolid
         col += label("Переход из чёрного в прозрачность над доком, % высоты")
@@ -225,7 +222,6 @@ class SettingsActivity : Activity() {
             .putInt(Prefs.K_FPS, (fps.text.toString().toIntOrNull() ?: 20).coerceIn(0, 30))
             .putFloat(Prefs.K_SHADE_SOLID, ((shadeSolid.text.toString().replace(',', '.').toFloatOrNull() ?: 9.3f) / 100f).coerceIn(0f, 0.4f))
             .putFloat(Prefs.K_SHADE_FADE, ((shadeFade.text.toString().replace(',', '.').toFloatOrNull() ?: 11.2f) / 100f).coerceIn(0.02f, 0.5f))
-            .putFloat(Prefs.K_UI_SCALE, (uiScale.text.toString().replace(',', '.').toFloatOrNull() ?: 0.8f).coerceIn(0.6f, 1f))
             .putFloat(Prefs.K_GLOW, (glow.text.toString().replace(',', '.').toFloatOrNull() ?: 1f).coerceIn(0f, 2f))
             .putFloat(Prefs.K_YAW, (yaw.text.toString().toFloatOrNull() ?: 24f).coerceIn(0f, 34f))
             .putString(Prefs.K_ZONES, zones.text.toString().trim())
