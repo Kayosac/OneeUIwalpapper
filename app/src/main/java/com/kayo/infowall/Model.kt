@@ -52,7 +52,8 @@ data class Config(
     val goals: List<Goal>,
     val steam: Boolean,
     val math: Boolean,          // мини-виджет «формула»: плоскость z = f(x, y, t)
-    val mathFn: Int,
+    val mathFn: Int,            // 0..7 — встроенные, 8 — своя формула
+    val mathCustom: String,
 )
 
 object Prefs {
@@ -87,6 +88,7 @@ object Prefs {
     const val K_STEAM = "steam"
     const val K_MATH = "math"
     const val K_MATH_FN = "math_fn"
+    const val K_MATH_CUSTOM = "math_custom"
 
     const val MIN_INTERVAL = 15
     const val DEFAULT_ACCENT = "#00E5FF"
@@ -131,7 +133,8 @@ object Prefs {
             goals = Goals.parse(p.getString(Goals.PREF_KEY, null)),
             steam = p.getBoolean(K_STEAM, true),
             math = p.getBoolean(K_MATH, true),
-            mathFn = p.getInt(K_MATH_FN, 0).coerceIn(0, MathPlane.FNS.size - 1),
+            mathFn = p.getInt(K_MATH_FN, 0).coerceIn(0, MathPlane.CUSTOM),
+            mathCustom = p.getString(K_MATH_CUSTOM, "").orEmpty(),
         )
     }
 

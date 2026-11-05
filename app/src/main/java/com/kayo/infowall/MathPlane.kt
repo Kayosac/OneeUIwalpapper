@@ -25,8 +25,28 @@ object MathPlane {
         Fn("DUAL", "z = sin(12d₁ − 3t) + sin(12d₂ − 3t)"),
     )
 
-    fun z(fn: Int, x: Float, y: Float, t: Float): Float {
+    /** Номер «своей формулы» — сразу после встроенных. */
+    val CUSTOM get() = FNS.size
+
+    private var cSrc: String? = null
+    private var cNode: MathExpr.Node? = null
+    private val vars = MathExpr.Vars()
+
+    /** Своя формула, разобранная один раз (null — пусто или с ошибкой). */
+    fun custom(src: String): MathExpr.Node? {
+        if (src != cSrc) { cSrc = src; cNode = runCatching { MathExpr.compile(src) }.getOrNull() }
+        return cNode
+    }
+
+    fun z(fn: Int, x: Float, y: Float, t: Float, src: String = ""): Float {
         val r = sqrt(x * x + y * y)
+        if (fn == CUSTOM) {
+            val n = custom(src) ?: return 0f
+            vars.x = x.toDouble(); vars.y = y.toDouble(); vars.t = t.toDouble(); vars.r = r.toDouble()
+            vars.a = kotlin.math.atan2(y, x).toDouble()
+            val v = runCatching { n.v(vars) }.getOrDefault(0.0)
+            return if (v.isNaN()) 0f else v.coerceIn(-3.0, 3.0).toFloat()
+        }
         return when (fn) {
             0 -> sin(10f * r - 3f * t) * exp(-1.5f * r)
             1 -> (x * x - y * y) * cos(0.8f * t)

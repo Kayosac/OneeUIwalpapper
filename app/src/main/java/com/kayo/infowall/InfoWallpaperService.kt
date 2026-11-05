@@ -247,6 +247,7 @@ open class InfoWallpaperService : WallpaperService() {
                     "clock" -> { openClock(); return@run }
                     "calendar" -> { openCalendar(); return@run }
                     "memory" -> { openMemory(); return@run }
+                    "mathedit" -> { launchFirst(android.content.Intent(applicationContext, MathEditActivity::class.java)); return@run }
                     "goals" -> { launchFirst(android.content.Intent(applicationContext, GoalsActivity::class.java)); return@run }
                     "update" -> { launchFirst(android.content.Intent(applicationContext, SettingsActivity::class.java)); return@run }
                     "steamnext" -> { refreshSteam(); return@run }

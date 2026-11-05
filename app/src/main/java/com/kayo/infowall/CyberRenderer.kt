@@ -103,6 +103,7 @@ class CyberRenderer {
         !goalsOnScreen.isEmpty && goalsOnScreen.contains(x, y) -> "goals"
         !memOnScreen.isEmpty && memOnScreen.contains(x, y) -> "memory"
         mathBtns.any { !it.isEmpty && it.contains(x, y) } -> "math:" + mathBtns.indexOfFirst { !it.isEmpty && it.contains(x, y) }
+        !mathEditRect.isEmpty && mathEditRect.contains(x, y) -> "mathedit"
         !steamNextRect.isEmpty && steamNextRect.contains(x, y) -> "steamnext"
         else -> steamRows.indices.firstOrNull { steamRows[it].contains(x, y) }?.let { "steam:${steamIds[it]}" }
             ?: srvRects.indices.firstOrNull { srvRects[it].contains(x, y) }?.let { "srv:$it" }
@@ -252,7 +253,7 @@ class CyberRenderer {
         drawScene(c, f, vp, yawNow, ext, dh)
         if (f.lock) {
             // экран блокировки: только сцена — ни часов, ни плашек, ни зон тапа
-            clockOnScreen.setEmpty(); calendarOnScreen.setEmpty(); goalsOnScreen.setEmpty(); updOnScreen.setEmpty(); memOnScreen.setEmpty(); mathBtns.forEach { it.setEmpty() }
+            clockOnScreen.setEmpty(); calendarOnScreen.setEmpty(); goalsOnScreen.setEmpty(); updOnScreen.setEmpty(); memOnScreen.setEmpty(); mathBtns.forEach { it.setEmpty() }; mathEditRect.setEmpty()
             converterOnScreen.setEmpty(); padOnScreen.setEmpty(); steamRows.clear(); steamNextRect.setEmpty(); srvRects.clear()
             c.restore()
             return
@@ -268,7 +269,7 @@ class CyberRenderer {
         if (cfg.steam) drawSteam(c, f) else { steamRows.clear(); steamNextRect.setEmpty() }
         // «формула» — справа от игр, размером с погоду
         val ml = if (cfg.steam) steamRight + 10f else 48f
-        if (cfg.math) drawMath(c, f, ml, 304f, ml + 268f, 466f) else mathBtns.forEach { it.setEmpty() }
+        if (cfg.math) drawMath(c, f, ml, 304f, ml + 268f, 466f) else { mathBtns.forEach { it.setEmpty() }; mathEditRect.setEmpty() }
         c.restore()
 
         c.restore()
@@ -883,6 +884,7 @@ class CyberRenderer {
     // ================= «Формула»: плоскость z = f(x, y, t) =================
 
     private val mathBtns = Array(MathPlane.FNS.size) { RectF() }
+    private val mathEditRect = RectF()
     private var mathCur = -1; private var mathPrev = 0; private var mathAt = 0f
     private val mathBufs = Array(MATH_NB) { FloatArray(MATH_N * (MATH_N + 1) * 2 * 4) }
     private val mathCnt = IntArray(MATH_NB)
@@ -911,7 +913,8 @@ class CyberRenderer {
         val n = MATH_N
         for (j in 0..n) for (i in 0..n) {
             val x = -1f + 2f * i / n; val y = -1f + 2f * j / n
-            val z0 = MathPlane.z(mathPrev, x, y, f.t); val z1 = MathPlane.z(mathCur, x, y, f.t)
+            val src = f.cfg.mathCustom
+            val z0 = MathPlane.z(mathPrev, x, y, f.t, src); val z1 = MathPlane.z(mathCur, x, y, f.t, src)
             val z = (z0 + (z1 - z0) * mk).coerceIn(-1.4f, 1.4f)
             val xr = x * ca - y * sa; val yr = x * sa + y * ca
             val k = j * (n + 1) + i
@@ -938,12 +941,15 @@ class CyberRenderer {
         c.restore()
         // формула под плоскостью: моноширинный, в нём есть ², θ, ₁
         text.typeface = Typeface.MONOSPACE; text.textSize = 8.5f; text.letterSpacing = 0f; text.color = label
-        val fs = MathPlane.FNS[fn].formula
+        val fs = if (fn == MathPlane.CUSTOM) "z = " + f.cfg.mathCustom.trim().removePrefix("z =").removePrefix("z=").trim()
+            else MathPlane.FNS[fn].formula
         val fw = text.measureText(fs)
         c.save()
         if (fw > pr - pl) c.scale((pr - pl) / fw, 1f, pl, b - 7f)
         c.drawText(fs, pl, b - 7f, text)
         c.restore()
+        // тап по плоскости или формуле — ввести свою
+        toScreen(mathEditRect, pl, pt, pr, b, f.cfg.uiScale)
 
         // --- кнопки 2 × 4 ---
         val bl = pr + 6f; val br = r - 6f; val bt = t + 6f; val bbm = b - 6f
