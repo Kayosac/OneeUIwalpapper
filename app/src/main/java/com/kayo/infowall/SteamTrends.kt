@@ -82,7 +82,7 @@ object SteamTrends {
             val name = listName.ifBlank { names.optString(id.toString()).ifEmpty { "App $id" } }
             names.put(id.toString(), name)
             val players = live[id] ?: runCatching { currentPlayers(id) }.getOrDefault(0)
-            // история: точка не чаще раза в 50 минут, хранится неделя
+            // история: точка не чаще раза в 25 минут (каждое обновление), хранится неделя
             val h = hist.optJSONArray(id.toString()) ?: JSONArray()
             val kept = JSONArray()
             for (i in 0 until h.length()) {
@@ -90,7 +90,7 @@ object SteamTrends {
                 if (now - pt.optLong(0) < WEEK_MS) kept.put(pt)
             }
             val lastTs = if (kept.length() > 0) kept.optJSONArray(kept.length() - 1).optLong(0) else 0L
-            if (now - lastTs > 50 * 60_000L) kept.put(JSONArray().put(now).put(players))
+            if (now - lastTs > 25 * 60_000L) kept.put(JSONArray().put(now).put(players))
             hist.put(id.toString(), kept)
             val series = FloatArray(kept.length()) { kept.optJSONArray(it).optDouble(1).toFloat() }
             // пик за 24 ч: из чарта онлайна Steam; если игры нет в топ-100 — максимум наших замеров за сутки

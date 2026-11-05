@@ -946,7 +946,13 @@ class CyberRenderer {
 
     private fun spark7(c: Canvas, v: FloatArray, x: Float, top: Float, w: Float, h: Float) {
         fill.color = withA(accent, 0.15f); c.drawRect(x, top + h, x + w, top + h + 1f, fill)
-        if (v.isEmpty()) return
+        if (v.size < 2) {
+            // одна точка — линии ещё нет: подпись вместо пустоты
+            text.typeface = labelFace; text.textSize = 8f; text.letterSpacing = 0.1f; text.color = withA(label, 0.6f)
+            center(c, "СБОР ДАННЫХ", x + w / 2f, top + h / 2f + 3f)
+            text.letterSpacing = 0f
+            return
+        }
         var lo = v[0]; var hi = v[0]
         for (p in v) { lo = min(lo, p); hi = max(hi, p) }
         val span = max(1f, hi - lo)
