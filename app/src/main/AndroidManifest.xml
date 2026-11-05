@@ -28,6 +28,23 @@
             </intent-filter>
         </activity>
 
+        <!-- Всплывающий конвертер: открывается тапом по блоку курсов на обоях
+             или иконкой «Конвертер» в списке приложений -->
+        <activity
+            android:name=".ConverterActivity"
+            android:exported="true"
+            android:label="@string/converter_name"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:taskAffinity="com.kayo.infowall.converter"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize|stateVisible">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
         <service
             android:name=".InfoWallpaperService"
             android:exported="true"

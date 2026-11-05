@@ -48,6 +48,9 @@ class InfoWallpaperService : WallpaperService() {
         private var news: List<Headline> = emptyList()
         private var nextNewsAt = 0L
         private var newsBusy = false
+        private var rates: Rates? = null
+        private var nextRatesAt = 0L
+        private var ratesBusy = false
         private var mesh: WireMesh? = null
         private var meshKey = ""
         private var fontKey = ""
@@ -135,6 +138,10 @@ class InfoWallpaperService : WallpaperService() {
         /** Двойной тап по пустому месту — обновить источник и погоду. */
         override fun onCommand(action: String?, x: Int, y: Int, z: Int, extras: Bundle?, resultRequested: Boolean): Bundle? {
             if (action == WallpaperManager.COMMAND_TAP) {
+                if (cfg.converter && renderer.converterHit(x.toFloat(), y.toFloat())) {
+                    openConverter()
+                    return null
+                }
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastTap < 400) {
                     nextRemoteAt = 0L; nextWeatherAt = 0L; lastTap = 0L
@@ -152,6 +159,7 @@ class InfoWallpaperService : WallpaperService() {
             maybeFetchRemote(now)
             maybeFetchWeather(now)
             maybeFetchNews(now)
+            maybeFetchRates(now)
         }
 
         private fun maybeFetchRemote(now: Long) {
@@ -169,6 +177,34 @@ class InfoWallpaperService : WallpaperService() {
                             .onFailure { remoteError = it.message ?: it.javaClass.simpleName }
                     }
                     nextRemoteAt = SystemClock.elapsedRealtime() + if (r.isSuccess) interval else minOf(interval, 60_000L)
+                }
+            }
+        }
+
+        private fun openConverter() {
+            try {
+                startActivity(
+                    android.content.Intent(applicationContext, ConverterActivity::class.java)
+                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK),
+                )
+            } catch (_: Exception) {
+                // система не дала открыть окно из фона — остаётся иконка «Конвертер» в списке приложений
+            }
+        }
+
+        private fun maybeFetchRates(now: Long) {
+            if (!cfg.converter || ratesBusy || now < nextRatesAt) return
+            if (rates == null) rates = RatesSource.cached(applicationContext)
+            val fresh = rates?.let { System.currentTimeMillis() - it.fetchedAt < RatesSource.STALE_MS } ?: false
+            if (fresh) { nextRatesAt = now + 30 * 60_000L; return }
+            ratesBusy = true
+            val ctx = applicationContext
+            submit {
+                val r = runCatching { RatesSource.fetch(ctx) }
+                handler.post {
+                    ratesBusy = false
+                    r.onSuccess { rates = it }
+                    nextRatesAt = SystemClock.elapsedRealtime() + if (r.isSuccess) RatesSource.STALE_MS else 5 * 60_000L
                 }
             }
         }
@@ -252,7 +288,7 @@ class InfoWallpaperService : WallpaperService() {
             try {
                 c = holder.lockHardwareCanvas() ?: return
                 val t = (SystemClock.elapsedRealtime() - startedAt) / 1000f
-                val fd = FrameData(cfg, if (cfg.fps <= 0) 0f else t, stats, remote, remoteError, weather, weatherNote, cfg.city, mesh, news)
+                val fd = FrameData(cfg, if (cfg.fps <= 0) 0f else t, stats, remote, remoteError, weather, weatherNote, cfg.city, mesh, news, rates)
                 if (Build.VERSION.SDK_INT >= 31 && cfg.glow > 0f && c.isHardwareAccelerated) drawWithBloom(c, fd)
                 else renderer.draw(c, width, height, fd)
             } catch (_: Exception) {

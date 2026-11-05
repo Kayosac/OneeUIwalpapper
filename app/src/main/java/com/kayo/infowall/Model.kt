@@ -34,6 +34,8 @@ data class Config(
     val glow: Float,
     val uiScale: Float,
     val news: Boolean,
+    val converter: Boolean,
+    val currencies: String,
     val newsRegion: String,
     val font: FontPreset,
     val fontVersion: Int,
@@ -60,6 +62,9 @@ object Prefs {
     const val K_GLOW = "glow"
     const val K_UI_SCALE = "ui_scale"
     const val K_NEWS = "news"
+    const val K_CONVERTER = "converter"
+    const val K_CURRENCIES = "currencies"
+    const val DEFAULT_CURRENCIES = "KZT, RUB, USD, EUR"
     const val K_NEWS_REGION = "news_region"
     const val K_FONT = "font"
     const val K_FONT_VER = "font_ver"
@@ -96,6 +101,8 @@ object Prefs {
             glow = p.getFloat(K_GLOW, 1f).coerceIn(0f, 2f),
             uiScale = p.getFloat(K_UI_SCALE, 0.8f).coerceIn(0.6f, 1f),
             news = p.getBoolean(K_NEWS, true),
+            converter = p.getBoolean(K_CONVERTER, true),
+            currencies = p.getString(K_CURRENCIES, DEFAULT_CURRENCIES).orEmpty().ifBlank { DEFAULT_CURRENCIES },
             newsRegion = p.getString(K_NEWS_REGION, "RU").orEmpty().ifBlank { "RU" },
             font = runCatching { FontPreset.valueOf(p.getString(K_FONT, "FINAL")!!) }.getOrDefault(FontPreset.FINAL),
             fontVersion = p.getInt(K_FONT_VER, 0),

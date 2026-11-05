@@ -37,6 +37,7 @@ class FrameData(
     val city: String,
     val mesh: WireMesh?,
     val news: List<Headline> = emptyList(),
+    val rates: Rates? = null,
 )
 
 /**
@@ -59,6 +60,13 @@ class CyberRenderer {
 
     // правый край интерфейса в координатах слоя (слой масштабируется на uiScale)
     private var uiR = 1232f
+
+    // где на экране (в пикселях) лежит блок курсов — для тапа
+    private val converterOnScreen = RectF()
+    private var screenScale = 1f
+    private var screenOx = 0f
+
+    fun converterHit(x: Float, y: Float): Boolean = !converterOnScreen.isEmpty && converterOnScreen.contains(x, y)
 
     /** Циферблат, мелкие цифры (значения, пояса) и подписи (кириллица). */
     fun setFonts(clock: Typeface, num: Typeface, label: Typeface) {
@@ -146,6 +154,8 @@ class CyberRenderer {
         val dh = h / s                      // видимая высота в макетных единицах (≥ 800)
         val vp = CX - tan(Math.toRadians(cfg.yawDeg.toDouble())).toFloat() * F
 
+        screenScale = s
+        screenOx = ox
         c.drawColor(Color.BLACK)
         c.save()
         c.translate(ox, 0f)
@@ -680,6 +690,7 @@ class CyberRenderer {
         val wl = uiR - 446f
         if (f.cfg.weather) drawWeather(c, f, wl, top, wl + 268f, bottom)
         drawCalendar(c, wl + 278f, top, uiR, bottom)
+        if (f.cfg.converter) drawRates(c, f, wl, bottom + 10f, uiR, bottom + 84f) else converterOnScreen.setEmpty()
     }
 
     private fun drawWeather(c: Canvas, f: FrameData, l: Float, t: Float, r: Float, b: Float) {
@@ -715,6 +726,44 @@ class CyberRenderer {
             center(c, signed(d.max) + "°", mid, y0 + 70f)
             text.textSize = 11f; text.color = label
             center(c, signed(d.min) + "°", mid, y0 + 86f)
+        }
+    }
+
+    /** Курсы в первой валюте списка; тап по блоку открывает конвертер. */
+    private fun drawRates(c: Canvas, f: FrameData, l: Float, t: Float, r: Float, b: Float) {
+        panel(c, l, t, r, b)
+        val ui = f.cfg.uiScale
+        converterOnScreen.set(
+            screenOx + l * ui * screenScale, t * ui * screenScale,
+            screenOx + r * ui * screenScale, b * ui * screenScale,
+        )
+        val codes = RatesSource.parseCodes(f.cfg.currencies)
+        val base = codes.firstOrNull() ?: "KZT"
+        text.letterSpacing = 0.25f; text.textSize = 10f; text.color = label
+        drawMixed(c, "КУРС В $base", l + 12f, t + 18f)
+        val rates = f.rates
+        text.letterSpacing = 0f
+        val hint = if (rates == null) "загрузка…" else "тап — конвертер"
+        drawMixed(c, hint, r - 12f - measureMixed(hint), t + 18f)
+        if (rates == null) return
+        val others = codes.drop(1)
+        if (others.isEmpty()) return
+        val cellW = (r - l - 24f) / others.size
+        others.forEachIndexed { i, code ->
+            val x = l + 12f + i * cellW
+            text.textSize = 11f; text.color = label; text.letterSpacing = 0.1f
+            drawMixed(c, code, x, t + 52f)
+            val v = rates.convert(1.0, code, base)
+            val s = when {
+                v == null -> "—"
+                v >= 100 -> String.format(Locale.US, "%.1f", v)
+                v >= 1 -> String.format(Locale.US, "%.2f", v)
+                else -> String.format(Locale.US, "%.4f", v)
+            }
+            text.textSize = 20f; text.color = accent; text.letterSpacing = 0f
+            text.setShadowLayer(10f, 0f, 0f, withA(accent, 0.6f))
+            drawMixed(c, s, x + 38f, t + 53f)
+            text.clearShadowLayer()
         }
     }
 

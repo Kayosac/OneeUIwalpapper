@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">InfoWall</string>
+    <string name="converter_name">Конвертер</string>
     <string name="wp_desc">Киберпанк-обои: рельеф, неоновое солнце, 3D-каркас, часы, погода, календарь и метрики планшета</string>
 </resources>

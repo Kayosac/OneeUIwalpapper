@@ -51,6 +51,8 @@ class SettingsActivity : Activity() {
     private lateinit var sfUrl: EditText
     private lateinit var sfToken: EditText
     private lateinit var modelStatus: TextView
+    private lateinit var swConverter: Switch
+    private lateinit var currencies: EditText
     private lateinit var swNews: Switch
     private lateinit var newsRegion: EditText
     private lateinit var url: EditText
@@ -134,6 +136,14 @@ class SettingsActivity : Activity() {
         col += sfToken
         col += button("Скачать с Sketchfab") { downloadSketchfab() }
         modelStatus = status(""); col += modelStatus
+
+        // --- курсы ---
+        col += header("Курсы валют")
+        swConverter = switch("Блок курсов (тап по нему — конвертер)", cfg.converter); col += swConverter
+        col += label("Четыре валюты через запятую, первая — базовая")
+        currencies = field(Prefs.DEFAULT_CURRENCIES, cfg.currencies, InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS)
+        col += currencies
+        col += button("Открыть конвертер") { startActivity(Intent(this, ConverterActivity::class.java)) }
 
         // --- новости ---
         col += header("Бегущая строка")
@@ -231,6 +241,8 @@ class SettingsActivity : Activity() {
             .putFloat(Prefs.K_MODEL_SPEED, (modelSpeed.text.toString().replace(',', '.').toFloatOrNull() ?: 1f).coerceIn(0f, 3f))
             .putString(Prefs.K_SF_URL, sfUrl.text.toString().trim())
             .putString(Prefs.K_SF_TOKEN, sfToken.text.toString().trim())
+            .putBoolean(Prefs.K_CONVERTER, swConverter.isChecked)
+            .putString(Prefs.K_CURRENCIES, RatesSource.parseCodes(currencies.text.toString()).joinToString(", ").ifEmpty { Prefs.DEFAULT_CURRENCIES })
             .putBoolean(Prefs.K_NEWS, swNews.isChecked)
             .putString(Prefs.K_NEWS_REGION, newsRegion.text.toString().trim().uppercase().filter { it.isLetter() }.take(2).ifEmpty { "RU" })
             .putString(Prefs.K_URL, u)

@@ -1,8 +1,9 @@
 name: Build APK
 
+# Сборка только по команде: тег v* (git tag v0.8 && git push --tags) или ручной запуск
 on:
   push:
-    branches: [main]
+    tags: ['v*']
   workflow_dispatch:
 
 permissions:
