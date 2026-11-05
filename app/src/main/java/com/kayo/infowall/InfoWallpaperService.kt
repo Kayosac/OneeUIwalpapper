@@ -383,7 +383,7 @@ class InfoWallpaperService : WallpaperService() {
             if (key == fontKey) return
             fontKey = key
             val set = Fonts.load(applicationContext, cfg.font)
-            renderer.setFonts(set.clock, set.num, set.label)
+            renderer.setFonts(set.clock, set.num, set.label, set.hud)
         }
 
         private fun submit(block: () -> Unit) {

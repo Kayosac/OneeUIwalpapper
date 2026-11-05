@@ -58,6 +58,7 @@ class CyberRenderer {
     private var clockFace: Typeface = mono
     private var numFace: Typeface = mono
     private var labelFace: Typeface = mono
+    private var hudFace: Typeface = mono
 
     // правый край интерфейса в координатах слоя (слой масштабируется на uiScale)
     private var uiR = 1232f
@@ -111,7 +112,8 @@ class CyberRenderer {
     }
 
     /** Циферблат, мелкие цифры (значения, пояса) и подписи (кириллица). */
-    fun setFonts(clock: Typeface, num: Typeface, label: Typeface) {
+    fun setFonts(clock: Typeface, num: Typeface, label: Typeface, hud: Typeface = num) {
+        hudFace = hud
         clockFace = clock
         numFace = num
         labelFace = label
@@ -461,7 +463,14 @@ class CyberRenderer {
         }
     }
 
+    /** Плашки мониторинга: все цифры — hudFace (подменяем шрифт цифр на время отрисовки). */
     private fun drawMetrics(c: Canvas, f: FrameData) {
+        val keep = numFace
+        numFace = hudFace
+        try { drawMetricsInner(c, f) } finally { numFace = keep }
+    }
+
+    private fun drawMetricsInner(c: Canvas, f: FrameData) {
         val st = f.stats
         // узкие колонки справа от часов: [батарея + память] [сеть] [сервер 1] [сервер 2]
         val x0 = 78f + 480f + 32f

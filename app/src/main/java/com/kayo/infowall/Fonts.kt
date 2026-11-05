@@ -35,7 +35,8 @@ object Fonts {
     private const val CUSTOM_FILE = "custom_font"
     private val fallback: Typeface = Typeface.create(Typeface.MONOSPACE, Typeface.NORMAL)
 
-    class Set(val clock: Typeface, val num: Typeface, val label: Typeface)
+    /** hud — цифры верхних плашек мониторинга: Bitcount потолще, точки сливаются в сплошные штрихи. */
+    class Set(val clock: Typeface, val num: Typeface, val label: Typeface, val hud: Typeface = num)
 
     /** Циферблат, мелкие цифры и подписи; при любой ошибке — системный моноширинный. */
     fun load(ctx: Context, preset: FontPreset): Set = when (preset) {
@@ -49,6 +50,7 @@ object Fonts {
             asset(ctx, preset.clock, preset.clockAxes),
             asset(ctx, preset.num, preset.numAxes),
             asset(ctx, preset.label, preset.labelAxes),
+            if (preset == FontPreset.FINAL) asset(ctx, "bitcount.ttf", "'wght' 600") else asset(ctx, preset.num, preset.numAxes),
         )
     }
 
