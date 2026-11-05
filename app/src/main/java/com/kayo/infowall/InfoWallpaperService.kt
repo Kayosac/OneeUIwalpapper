@@ -174,6 +174,10 @@ class InfoWallpaperService : WallpaperService() {
                     redraw()
                     return null
                 }
+                when (renderer.appHit(tx, ty)) {
+                    "clock" -> { openClock(); return null }
+                    "calendar" -> { openCalendar(); return null }
+                }
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastTap < 400) {
                     nextRemoteAt = 0L; nextWeatherAt = 0L; nextSrvAt = 0L; lastTap = 0L
@@ -262,6 +266,36 @@ class InfoWallpaperService : WallpaperService() {
                 }
             }
         }
+
+        // ---------- открыть приложение по тапу ----------
+
+        /** Пробует интенты по очереди: первый, для которого нашлось приложение, открывается. */
+        private fun launchFirst(vararg intents: android.content.Intent) {
+            for (i in intents) {
+                try {
+                    startActivity(i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED))
+                    return
+                } catch (_: android.content.ActivityNotFoundException) {
+                    // нет такого приложения — следующий вариант
+                } catch (_: SecurityException) {
+                }
+            }
+        }
+
+        private fun mainOf(pkg: String) = android.content.Intent(android.content.Intent.ACTION_MAIN)
+            .addCategory(android.content.Intent.CATEGORY_LAUNCHER).setPackage(pkg)
+
+        private fun openCalendar() = launchFirst(
+            mainOf("com.google.android.calendar"),
+            android.content.Intent.makeMainSelectorActivity(android.content.Intent.ACTION_MAIN, android.content.Intent.CATEGORY_APP_CALENDAR),
+            mainOf("com.samsung.android.calendar"),
+        )
+
+        private fun openClock() = launchFirst(
+            mainOf("com.sec.android.app.clockpackage"),           // Часы Samsung
+            android.content.Intent(android.provider.AlarmClock.ACTION_SHOW_ALARMS),
+            mainOf("com.google.android.deskclock"),
+        )
 
         // ---------- ввод суммы на обоях ----------
 

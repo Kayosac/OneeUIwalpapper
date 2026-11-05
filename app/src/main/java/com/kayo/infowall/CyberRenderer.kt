@@ -82,6 +82,22 @@ class CyberRenderer {
         return ""
     }
 
+    // зоны тапа «открыть приложение»: часы → Часы, календарь → Google Календарь
+    private val clockOnScreen = RectF()
+    private val calendarOnScreen = RectF()
+
+    /** "clock" / "calendar" под точкой тапа или null. */
+    fun appHit(x: Float, y: Float): String? = when {
+        !clockOnScreen.isEmpty && clockOnScreen.contains(x, y) -> "clock"
+        !calendarOnScreen.isEmpty && calendarOnScreen.contains(x, y) -> "calendar"
+        else -> null
+    }
+
+    private fun toScreen(out: RectF, l: Float, t: Float, r: Float, b: Float, ui: Float) {
+        val k = ui * screenScale
+        out.set(screenOx + l * k, t * k, screenOx + r * k, b * k)
+    }
+
     /** Валюта строки конвертера под точкой тапа (экранные пиксели) или null. */
     fun converterHit(x: Float, y: Float): String? {
         if (converterOnScreen.isEmpty || !converterOnScreen.contains(x, y)) return null
@@ -396,6 +412,7 @@ class CyberRenderer {
         corners(c, l, tp, r, b, k)
 
         drawClock(c, f)
+        toScreen(clockOnScreen, 60f, 40f, 560f, 205f, f.cfg.uiScale)   // часы вместе с поясами
         drawMetrics(c, f)
     }
 
@@ -777,11 +794,13 @@ class CyberRenderer {
         val wl = cr - 446f
         // пока вводится сумма — на месте погоды и календаря клавиатура (ниже панелей, до ряда приложений)
         if (f.fx != null && f.cfg.converter) {
+            calendarOnScreen.setEmpty()
             drawPad(c, f, f.fx, wl, top, cr, bottom)   // ровно на месте погоды и календаря
         } else {
             padOnScreen.setEmpty()
             if (f.cfg.weather) drawWeather(c, f, wl, top, wl + 268f, bottom)
             drawCalendar(c, wl + 278f, top, cr, bottom)
+            toScreen(calendarOnScreen, wl + 278f, top, cr, bottom, f.cfg.uiScale)
         }
         if (f.cfg.converter) drawRates(c, f, uiR - 168f, top, uiR, bottom) else converterOnScreen.setEmpty()
     }
