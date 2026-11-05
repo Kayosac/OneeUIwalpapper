@@ -65,6 +65,7 @@ open class InfoWallpaperService : WallpaperService() {
         private var nextNetAt = 0L
         private var nextSlowAt = 0L
         private var fxEdit: FxEdit? = null      // идёт ввод суммы на обоях
+        private var mathEdit: MathEdit? = null  // идёт набор своей формулы (клавиатура на месте игр)
         private var steam: List<TrendGame> = emptyList()
         private var steamNote: String? = null
         private var steamBusy = false
@@ -112,7 +113,7 @@ open class InfoWallpaperService : WallpaperService() {
 
         override fun onVisibilityChanged(v: Boolean) {
             visible = v
-            if (!v) { pendingTap?.let { handler.removeCallbacks(it) }; pendingTap = null; closeFx(true) }
+            if (!v) { pendingTap?.let { handler.removeCallbacks(it) }; pendingTap = null; closeFx(true); closeMath(true) }
             handler.removeCallbacks(frame)
             if (v) {
                 renderer.invalidateTime()
@@ -202,6 +203,7 @@ open class InfoWallpaperService : WallpaperService() {
             if (OwnUi.busy()) return
             val fx = fxEdit
             if (fx != null && (renderer.padHit(x, y) != null || renderer.converterHit(x, y) != null)) { handleTap(x, y); return }
+            if (mathEdit != null && renderer.mathPadHit(x, y) != null) { handleTap(x, y); return }
             val guard = TapGuardService.instance
             if (guard != null && guard.ownsPoint(x.toInt(), y.toInt()) == true) return
             val at = SystemClock.uptimeMillis()
@@ -228,7 +230,7 @@ open class InfoWallpaperService : WallpaperService() {
                     if (downValid && (kotlin.math.abs(e.x - downX) > slop || kotlin.math.abs(e.y - downY) > slop)) {
                         downValid = false
                         // свайп (меню приложений, листание экранов) — открытую клавиатуру закрыть с сохранением
-                        if (fxEdit != null) { closeFx(true); redraw() }
+                        if (fxEdit != null || mathEdit != null) { closeFx(true); closeMath(true); redraw() }
                     }
                 android.view.MotionEvent.ACTION_POINTER_DOWN, android.view.MotionEvent.ACTION_CANCEL -> downValid = false
                 android.view.MotionEvent.ACTION_UP -> {
@@ -246,6 +248,16 @@ open class InfoWallpaperService : WallpaperService() {
         private fun handleTap(tx: Float, ty: Float) {
             renderer.tapAt(tx, ty)       // кольцо-отклик: видно, что тап дошёл
             run {
+                val me = mathEdit
+                if (me != null) {
+                    when (val key = renderer.mathPadHit(tx, ty)) {
+                        null -> closeMath(true)                 // тап мимо клавиатуры — оставить формулу и закрыть
+                        "" -> {}
+                        else -> onMathKey(me, key)
+                    }
+                    redraw()
+                    return@run
+                }
                 val fx = fxEdit
                 if (fx != null) {
                     val key = renderer.padHit(tx, ty)
@@ -269,7 +281,7 @@ open class InfoWallpaperService : WallpaperService() {
                     "clock" -> { openClock(); return@run }
                     "calendar" -> { openCalendar(); return@run }
                     "memory" -> { openMemory(); return@run }
-                    "mathedit" -> { launchFirst(android.content.Intent(applicationContext, MathEditActivity::class.java)); return@run }
+                    "mathedit" -> { startMath(); redraw(); return@run }
                     "goals" -> { launchFirst(android.content.Intent(applicationContext, GoalsActivity::class.java)); return@run }
                     "update" -> { launchFirst(android.content.Intent(applicationContext, SettingsActivity::class.java)); return@run }
                     "steamnext" -> { refreshSteam(); return@run }
@@ -316,6 +328,7 @@ open class InfoWallpaperService : WallpaperService() {
             maybeCheckUpdate(now)
             // клавиатура сама закрывается через 30 с без нажатий (с сохранением набранного)
             fxEdit?.let { if (now - it.lastAt > 30_000L) closeFx(true) }
+            mathEdit?.let { if (now - it.lastAt > 90_000L) { closeMath(true); redraw() } }
         }
 
         /** Проверка обновления: раз в 6 часов, пока обои видны (маленький json с GitHub). */
@@ -503,6 +516,7 @@ open class InfoWallpaperService : WallpaperService() {
         // ---------- ввод суммы на обоях ----------
 
         private fun startFx(code: String) {
+            closeMath(true)
             val cur = rates?.convert(cfg.fxAmount, cfg.fxFrom, code) ?: if (code == cfg.fxFrom) cfg.fxAmount else 1.0
             fxEdit = FxEdit(code, FxEdit.plain(cur)).apply { lastAt = SystemClock.elapsedRealtime() }
         }
@@ -541,6 +555,37 @@ open class InfoWallpaperService : WallpaperService() {
                 .putString(Prefs.K_FX_FROM, picked)
                 .putString(Prefs.K_FX_AMOUNT, (conv ?: typed).toString())
                 .apply()
+        }
+
+        // ---------- своя формула на обоях ----------
+
+        private fun startMath() {
+            closeFx(true)
+            val start = if (cfg.mathFn == MathPlane.CUSTOM) cfg.mathCustom else ""
+            mathEdit = MathEdit(start).apply { lastAt = SystemClock.elapsedRealtime() }
+        }
+
+        private fun onMathKey(me: MathEdit, key: String) {
+            me.flashKey = key; me.flashAt = System.currentTimeMillis()
+            me.lastAt = SystemClock.elapsedRealtime()
+            when (key) {
+                MathEdit.KEY_OK -> closeMath(true)
+                MathEdit.KEY_ESC -> closeMath(false)
+                else -> me.press(key)
+            }
+        }
+
+        /** Закрыть клавиатуру; [save] — оставить формулу на виджете (если она верная). */
+        private fun closeMath(save: Boolean) {
+            val me = mathEdit ?: return
+            mathEdit = null
+            val src = me.text.trim()
+            if (save && src.isNotEmpty() && me.error == null) {
+                Prefs.get(applicationContext).edit()
+                    .putString(Prefs.K_MATH_CUSTOM, src)
+                    .putInt(Prefs.K_MATH_FN, MathPlane.CUSTOM)
+                    .apply()
+            }
         }
 
         private fun closeFx(save: Boolean) {
@@ -641,7 +686,7 @@ open class InfoWallpaperService : WallpaperService() {
             try {
                 c = holder.lockHardwareCanvas() ?: return
                 val t = (SystemClock.elapsedRealtime() - startedAt) / 1000f
-                val fd = FrameData(cfg, if (cfg.fps <= 0) 0f else t, stats, remote, remoteError, weather, weatherNote, cfg.city, news, rates, serverViews, fxEdit, steam, steamNote, updateName, steamBusy, lockMode)
+                val fd = FrameData(cfg, if (cfg.fps <= 0) 0f else t, stats, remote, remoteError, weather, weatherNote, cfg.city, news, rates, serverViews, fxEdit, steam, steamNote, updateName, steamBusy, mathEdit = mathEdit, lock = lockMode)
                 if (Build.VERSION.SDK_INT >= 31 && cfg.glow > 0f && c.isHardwareAccelerated) drawWithBloom(c, fd)
                 else renderer.draw(c, width, height, fd)
                 if (!lockMode) {

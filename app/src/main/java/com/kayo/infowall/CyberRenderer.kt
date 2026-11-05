@@ -43,6 +43,7 @@ class FrameData(
     val steamNote: String? = null,
     val update: String? = null,
     val steamBusy: Boolean = false,     // идёт сбор Steam — значок ⟳ крутится
+    val mathEdit: MathEdit? = null,     // набор своей формулы: клавиатура на месте игр
     val lock: Boolean = false,          // экран блокировки: только сцена, ракурс круче
 )
 
@@ -81,6 +82,13 @@ class CyberRenderer {
     private val padPool = ArrayList<RectF>()
 
     /** Клавиша под тапом; "" — тап по клавиатуре мимо клавиш; null — мимо клавиатуры. */
+    /** Клавиша формульной клавиатуры под тапом; "" — мимо клавиш, но по панели; null — мимо панели. */
+    fun mathPadHit(x: Float, y: Float): String? {
+        if (mathPadOnScreen.isEmpty || !mathPadOnScreen.contains(x, y)) return null
+        for ((k, r) in mathKeys) if (r.contains(x, y)) return k
+        return ""
+    }
+
     fun padHit(x: Float, y: Float): String? {
         if (padOnScreen.isEmpty || !padOnScreen.contains(x, y)) return null
         for ((k, r) in padKeys) if (r.contains(x, y)) return k
@@ -253,7 +261,7 @@ class CyberRenderer {
         drawScene(c, f, vp, yawNow, ext, dh)
         if (f.lock) {
             // экран блокировки: только сцена — ни часов, ни плашек, ни зон тапа
-            clockOnScreen.setEmpty(); calendarOnScreen.setEmpty(); goalsOnScreen.setEmpty(); updOnScreen.setEmpty(); memOnScreen.setEmpty(); mathBtns.forEach { it.setEmpty() }; mathEditRect.setEmpty()
+            clockOnScreen.setEmpty(); calendarOnScreen.setEmpty(); goalsOnScreen.setEmpty(); updOnScreen.setEmpty(); memOnScreen.setEmpty(); mathBtns.forEach { it.setEmpty() }; mathEditRect.setEmpty(); mathPadOnScreen.setEmpty()
             converterOnScreen.setEmpty(); padOnScreen.setEmpty(); steamRows.clear(); steamNextRect.setEmpty(); srvRects.clear()
             c.restore()
             return
@@ -266,7 +274,14 @@ class CyberRenderer {
         drawHud(c, f)
         drawTicker(c, f)
         drawWeatherAndCalendar(c, f)
-        if (cfg.steam) drawSteam(c, f) else { steamRows.clear(); steamNextRect.setEmpty() }
+        val me = f.mathEdit
+        if (me != null && cfg.math) {
+            steamRows.clear(); steamNextRect.setEmpty()
+            drawMathPad(c, f, me, 48f, 304f, if (cfg.steam) steamRight else 538f, 758f)
+        } else {
+            mathPadOnScreen.setEmpty()
+            if (cfg.steam) drawSteam(c, f) else { steamRows.clear(); steamNextRect.setEmpty() }
+        }
         // «формула» — справа от игр, размером с погоду
         val ml = if (cfg.steam) steamRight + 10f else 48f
         if (cfg.math) drawMath(c, f, ml, 304f, ml + 268f, 466f) else { mathBtns.forEach { it.setEmpty() }; mathEditRect.setEmpty() }
@@ -898,7 +913,8 @@ class CyberRenderer {
      */
     private fun drawMath(c: Canvas, f: FrameData, l: Float, t: Float, r: Float, b: Float) {
         panel(c, l, t, r, b)
-        val fn = f.cfg.mathFn
+        val me = f.mathEdit
+        val fn = if (me != null && me.lastValid.isNotBlank()) MathPlane.CUSTOM else f.cfg.mathFn
         if (mathCur < 0) { mathCur = fn; mathPrev = fn }
         if (fn != mathCur) { mathPrev = mathCur; mathCur = fn; mathAt = f.t }
         val mk = ((f.t - mathAt) / 0.8f).coerceIn(0f, 1f).let { it * it * (3f - 2f * it) }
@@ -913,7 +929,7 @@ class CyberRenderer {
         val n = MATH_N
         for (j in 0..n) for (i in 0..n) {
             val x = -1f + 2f * i / n; val y = -1f + 2f * j / n
-            val src = f.cfg.mathCustom
+            val src = if (me != null && me.lastValid.isNotBlank()) me.lastValid else f.cfg.mathCustom
             val z0 = MathPlane.z(mathPrev, x, y, f.t, src); val z1 = MathPlane.z(mathCur, x, y, f.t, src)
             val z = (z0 + (z1 - z0) * mk).coerceIn(-1.4f, 1.4f)
             val xr = x * ca - y * sa; val yr = x * sa + y * ca
@@ -941,8 +957,11 @@ class CyberRenderer {
         c.restore()
         // формула под плоскостью: моноширинный, в нём есть ², θ, ₁
         text.typeface = Typeface.MONOSPACE; text.textSize = 8.5f; text.letterSpacing = 0f; text.color = label
-        val fs = if (fn == MathPlane.CUSTOM) "z = " + f.cfg.mathCustom.trim().removePrefix("z =").removePrefix("z=").trim()
-            else MathPlane.FNS[fn].formula
+        val fs = when {
+            me != null -> "z = " + me.text.ifBlank { "…" }
+            fn == MathPlane.CUSTOM -> "z = " + f.cfg.mathCustom.trim().removePrefix("z =").removePrefix("z=").trim()
+            else -> MathPlane.FNS[fn].formula
+        }
         val fw = text.measureText(fs)
         c.save()
         if (fw > pr - pl) c.scale((pr - pl) / fw, 1f, pl, b - 7f)
@@ -1251,6 +1270,92 @@ class CyberRenderer {
     }
 
     private var curHave: List<String> = emptyList()
+
+    // ================= клавиатура формулы (на месте виджета игр) =================
+
+    private val mathPadOnScreen = RectF()
+    private val mathKeys = ArrayList<Pair<String, RectF>>()
+    private val mathPool = ArrayList<RectF>()
+
+    private fun drawMathPad(c: Canvas, f: FrameData, me: MathEdit, l: Float, t: Float, r: Float, b: Float) {
+        val k = f.cfg.uiScale * screenScale
+        mathPadOnScreen.set(screenOx + l * k, t * k, screenOx + r * k, b * k)
+        mathPool.addAll(mathKeys.map { it.second }); mathKeys.clear()
+        panel(c, l, t, r, b)
+        val pad = 8f; val g = 4f
+
+        // шапка: «z = …» с курсором и строка проверки
+        text.typeface = labelFace; text.textSize = 9f; text.letterSpacing = 0.15f; text.color = label
+        c.drawText("СВОЯ ФОРМУЛА", l + pad + 2f, t + 16f, text)
+        text.letterSpacing = 0f
+        val fieldT = t + 22f; val fieldB = t + 52f
+        box(c, l + pad, fieldT, r - pad, fieldB, true)
+        text.typeface = Typeface.MONOSPACE; text.textSize = 15f; text.color = face
+        val head = "z = "
+        val full = head + me.text
+        val cx = head.length + me.cursor
+        val maxW = r - l - pad * 2 - 16f
+        var tw = text.measureText(full)
+        // длинная формула — сдвигаем, чтобы курсор был виден
+        var shift = 0f
+        if (tw > maxW) {
+            val curX = text.measureText(full, 0, cx)
+            shift = (curX - maxW * 0.7f).coerceIn(0f, tw - maxW)
+        }
+        c.save()
+        c.clipRect(l + pad + 4f, fieldT, r - pad - 4f, fieldB)
+        val tx0 = l + pad + 8f - shift
+        c.drawText(full, tx0, fieldB - 10f, text)
+        // курсор мигает
+        if ((System.currentTimeMillis() / 500) % 2 == 0L) {
+            val curX = tx0 + text.measureText(full, 0, cx)
+            fill.shader = null; fill.color = accent
+            c.drawRect(curX, fieldT + 6f, curX + 1.6f, fieldB - 6f, fill)
+        }
+        c.restore()
+        text.typeface = labelFace; text.textSize = 9f
+        val err = me.error
+        text.color = if (err == null) accent else Color.rgb(255, 120, 140)
+        val status = when {
+            me.text.isBlank() -> "x, y от −1 до 1 · t — время · r — расстояние · θ — угол"
+            err == null -> "✓ на виджете справа"
+            else -> "✗ $err"
+        }
+        drawMixed(c, status, l + pad + 2f, fieldB + 14f)
+
+        // клавиши 8 × 7
+        val kt = fieldB + 22f
+        val rowsN = MathEdit.ROWS.size
+        val kh = (b - pad - kt - g * (rowsN - 1)) / rowsN
+        val flashOn = me.flashKey != null && System.currentTimeMillis() - me.flashAt < 160
+        MathEdit.ROWS.forEachIndexed { ri, row ->
+            val kw = (r - l - pad * 2 - g * (row.size - 1)) / row.size
+            row.forEachIndexed { ci, key ->
+                val x0 = l + pad + ci * (kw + g)
+                val y0 = kt + ri * (kh + g)
+                val pressed = flashOn && key == me.flashKey
+                val strong = key == MathEdit.KEY_OK
+                box(c, x0, y0, x0 + kw, y0 + kh, strong || pressed)
+                if (pressed) { fill.color = withA(accent, 0.35f); c.drawRect(x0, y0, x0 + kw, y0 + kh, fill) }
+                val digit = key.length == 1 && key[0].isDigit()
+                when {
+                    digit -> { text.typeface = numFace; text.textSize = 18f }
+                    MathEdit.isCmd(key) -> { text.typeface = labelFace; text.textSize = 9f; text.letterSpacing = 0.15f }
+                    MathEdit.isFunc(key) -> { text.typeface = Typeface.MONOSPACE; text.textSize = 13f }
+                    else -> { text.typeface = Typeface.MONOSPACE; text.textSize = 17f }
+                }
+                text.color = when { pressed -> Color.WHITE; strong -> accent; digit -> face; MathEdit.isFunc(key) -> label; else -> face }
+                if (strong) text.setShadowLayer(8f, 0f, 0f, withA(accent, 0.7f))
+                val w = text.measureText(key)
+                if (w > kw - 6f) text.textSize *= (kw - 6f) / w
+                center(c, key, x0 + kw / 2f, y0 + kh / 2f + text.textSize * 0.36f)
+                text.clearShadowLayer(); text.letterSpacing = 0f
+                val rr = if (mathPool.isEmpty()) RectF() else mathPool.removeAt(mathPool.size - 1)
+                rr.set(screenOx + x0 * k, y0 * k, screenOx + (x0 + kw) * k, (y0 + kh) * k)
+                mathKeys += key to rr
+            }
+        }
+    }
 
     private fun box(c: Canvas, l: Float, t: Float, r: Float, b: Float, active: Boolean) {
         fill.shader = null

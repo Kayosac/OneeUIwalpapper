@@ -62,15 +62,6 @@
             android:windowSoftInputMode="adjustResize" />
 
         <activity
-            android:name=".MathEditActivity"
-            android:exported="false"
-            android:label="Формула"
-            android:taskAffinity="com.kayo.infowall.math"
-            android:excludeFromRecents="true"
-            android:theme="@android:style/Theme.DeviceDefault.Wallpaper.NoTitleBar"
-            android:windowSoftInputMode="adjustResize" />
-
-        <activity
             android:name=".ConverterActivity"
             android:exported="true"
             android:label="@string/converter_name"
