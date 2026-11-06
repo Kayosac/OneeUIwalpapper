@@ -35,6 +35,7 @@ class TrendGame(
  * (у SteamDB API нет, а сбор с сайта они запрещают):
  *  - NEW  — игра впервые попала в топ-100 по онлайну (ISteamChartsService, место неделю назад отсутствует);
  *  - ▲N   — поднялась в этом топе на N ≥ 15 мест за неделю;
+ *  - LAUNCH — вышла за последние 5 дней и уже ≥ 6000 онлайн: всегда в списке и выше всех;
  *  - HOT  — игра не старше 3 месяцев, которую сейчас играют ≥ 500 человек; выше — больше онлайн и новее игра;
  *  - WISH — невышедшая игра со свежей страницей (большой appid) уже высоко в Top Wishlists магазина;
  *           со второго дня — ещё и рывок по месту в Top Wishlists относительно вчера.
@@ -51,6 +52,8 @@ object SteamTrends {
     const val MAX = 80        // кандидатов на проверку перед отбором 15 (многие отсеются по дате выхода)
     private const val FRESH_DAYS = 90
     private const val HOT_MIN = 500       // онлайн, с которого свежая игра — HOT
+    private const val LAUNCH_DAYS = 5     // «громкий запуск»: вышла не раньше стольких дней назад…
+    private const val LAUNCH_MIN = 6000   // …и уже собрала столько онлайна
     private const val MAX_WISH = 6     // строк WISH в списке, если игр с онлайном хватает на остальные
     private const val PREFS = "infowall_steam2"
     private const val API = "https://api.steampowered.com"
@@ -114,6 +117,9 @@ object SteamTrends {
             val days = ((now - rel) / DAY).toFloat().coerceIn(0f, FRESH_DAYS.toFloat())
             val score = 50f + min(30f, 12f * log10(n / HOT_MIN.toFloat())) + 15f * (1f - days / FRESH_DAYS)
             cand(id, "").offer(score, "HOT", TrendGame.K_HOT)
+            // громкий запуск: вышла за последние LAUNCH_DAYS дней и уже ≥ LAUNCH_MIN онлайн — всегда в списке, в самом верху
+            if (now - rel <= LAUNCH_DAYS * DAY && n >= LAUNCH_MIN)
+                cand(id, "").offer(110f + min(20f, 8f * log10(n / LAUNCH_MIN.toFloat())), "LAUNCH", TrendGame.K_HOT)
         }
 
         // 4) WISH: свежая страница высоко в Top Wishlists; со второго дня — рывок по месту
